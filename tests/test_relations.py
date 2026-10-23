@@ -76,3 +76,55 @@ def test_relations_api(tmp_path, monkeypatch):
     assert len(d["relations"]) == 2
     assert {r["predicate"] for r in d["relations"]} == {"開發", "使用"}
 
+
+def test_state_predicate_invalidates_old(store):
+    """狀態類謂詞（價格）同 (s,p) 不同 o → 舊關係自動失效，保留歷史。"""
+    assert store.add_relation("商品", "價格為", "10元") is True
+    assert store.add_relation("商品", "價格為", "12元") is True
+    rels = store.all_relations()
+    assert len(rels) == 1
+    assert rels[0]["object"] == "12元"
+    all_rels = store.all_relations(include_invalid=True)
+    assert len(all_rels) == 2
+    invalid = [r for r in all_rels if r["invalid_at"] is not None]
+    assert len(invalid) == 1
+    assert invalid[0]["object"] == "10元"
+
+
+def test_multi_value_predicate_not_invalidated(store):
+    """多值謂詞（使用）不同 o → 不失效，並列事實保留。"""
+    assert store.add_relation("Sylva", "使用", "SQLite") is True
+    assert store.add_relation("Sylva", "使用", "Python") is True
+    assert len(store.all_relations()) == 2
+
+
+def test_query_relations_skips_invalid(store):
+    """失效關係不參與多跳召回。"""
+    store.add_relation("甲", "朋友", "乙")
+    store.add_relation("甲", "價格為", "100元")
+    store.add_relation("甲", "價格為", "200元")
+    rels = store.query_relations("甲", max_depth=2)
+    objs = {r["object"] for r in rels}
+    assert "100元" not in objs
+    assert "200元" in objs
+
+
+def test_relations_api_include_invalid(tmp_path, monkeypatch):
+    """/relations 預設只返回有效關係，include_invalid=true 含失效歷史。"""
+    monkeypatch.delenv("SYLVA_LLM_API_KEY", raising=False)
+    monkeypatch.setenv("SYLVA_AUTH_TOKEN", "tok123")
+    from starlette.testclient import TestClient
+
+    from sylva.api import create_app
+
+    db = tmp_path / "sylva.db"
+    store = SylvaStore(db)
+    store.add_relation("商品", "價格為", "10元")
+    store.add_relation("商品", "價格為", "12元")
+    client = TestClient(create_app(db_path=db))
+    h = {"Authorization": "Bearer tok123"}
+    valid = client.get("/relations", headers=h).json()
+    assert len(valid["relations"]) == 1
+    assert valid["relations"][0]["object"] == "12元"
+    full = client.get("/relations?include_invalid=true", headers=h).json()
+    assert len(full["relations"]) == 2

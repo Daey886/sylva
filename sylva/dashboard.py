@@ -103,6 +103,7 @@ h2{font-size:15px;color:var(--accent);border-bottom:1px solid var(--border);padd
       <button onclick="window.graphZoom&amp;&amp;window.graphZoom(1.3)" data-i18n-title="zoom_in">＋</button>
       <button onclick="window.graphZoom&amp;&amp;window.graphZoom(0.77)" data-i18n-title="zoom_out">－</button>
       <button onclick="window.graphReset&amp;&amp;window.graphReset()" data-i18n-title="zoom_reset">⤾</button>
+      <button onclick="window.toggleHistory&amp;&amp;window.toggleHistory()" id="btn-history" data-i18n-title="show_history">🕰️</button>
     </div>
     <div class="card" id="graph-box"></div>
   </section>
@@ -131,7 +132,7 @@ var I18N={
   key_empty:'未配置，粘貼 API Key',save_btn:'保存設置',
   key_configured_ph:'已配置 {masked}（留空保持不變）',llm_enabled_model:'✅ LLM 已啟用（{model}）',
   llm_disabled:'⚠️ 未配置 LLM，純本地模式（實體抽取 / 睡眠昇華自動跳過）',
-  saved:'✅ 已保存',saved_llm:'✅ 已保存，LLM 已啟用',save_fail:'保存失敗，請檢查密鑰',zoom_in:'放大',zoom_out:'縮小',zoom_reset:'重置',
+  saved:'✅ 已保存',saved_llm:'✅ 已保存，LLM 已啟用',save_fail:'保存失敗，請檢查密鑰',zoom_in:'放大',zoom_out:'縮小',zoom_reset:'重置',show_history:'显示历史',history_tag:'已失效',show_history:'顯示歷史',history_tag:'已失效',
   load_fail:'載入失敗',stats_fail:'載入統計失敗',settings_fail:'載入設置失敗'
 },
 'zh-CN':{
@@ -159,7 +160,7 @@ var I18N={
   key_empty:'Not configured, paste API key',save_btn:'Save',
   key_configured_ph:'Configured {masked} (leave empty to keep)',llm_enabled_model:'✅ LLM enabled ({model})',
   llm_disabled:'⚠️ LLM not configured, local-only mode (extraction / sleep skipped)',
-  saved:'✅ Saved',saved_llm:'✅ Saved, LLM enabled',save_fail:'Save failed, check key',zoom_in:'Zoom in',zoom_out:'Zoom out',zoom_reset:'Reset',
+  saved:'✅ Saved',saved_llm:'✅ Saved, LLM enabled',save_fail:'Save failed, check key',zoom_in:'Zoom in',zoom_out:'Zoom out',zoom_reset:'Reset',show_history:'Show history',history_tag:'Invalidated',
   load_fail:'Load failed',stats_fail:'Failed to load stats',settings_fail:'Failed to load settings'
 }
 };
@@ -262,7 +263,7 @@ document.querySelectorAll('.tab').forEach(function(b){
       if(!nodes[r.subject])nodes[r.subject]={n:r.subject,d:0};
       if(!nodes[r.object])nodes[r.object]={n:r.object,d:0};
       nodes[r.subject].d++;nodes[r.object].d++;
-      edges.push({s:r.subject,p:r.predicate,o:r.object});
+      edges.push({s:r.subject,p:r.predicate,o:r.object,inv:r.invalid_at!=null});
     });
     var ns=Object.keys(nodes);
     if(!ns.length)return '<div class="empty">'+t('empty_relations')+'</div>';
@@ -299,8 +300,11 @@ document.querySelectorAll('.tab').forEach(function(b){
     svg+='<g id="gg">';
     edges.forEach(function(e){
       var a=nodes[e.s],b=nodes[e.o];
-      svg+='<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+'" stroke="#2f4538" stroke-width="1.5"/>';
-      svg+='<text x="'+((a.x+b.x)/2)+'" y="'+((a.y+b.y)/2-4)+'" fill="#8aa899" font-size="9" text-anchor="middle">'+esc(sl(e.p,10))+'<title>'+esc(e.p)+'</title></text>';
+      var st=e.inv?'#4a5a52':'#2f4538';
+      var dash=e.inv?' stroke-dasharray="4,3"':'';
+      var fl=e.inv?'#5a6b62':'#8aa899';
+      svg+='<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+'" stroke="'+st+'" stroke-width="1.5"'+dash+'/>';
+      svg+='<text x="'+((a.x+b.x)/2)+'" y="'+((a.y+b.y)/2-4)+'" fill="'+fl+'" font-size="9" text-anchor="middle">'+esc(sl(e.p,10))+'<title>'+esc(e.p)+(e.inv?'（'+t('history_tag')+'）':'')+'</title></text>';
     });
     ns.forEach(function(n){
       var r=4+Math.min(nodes[n].d,8)*1.8;
@@ -310,10 +314,21 @@ document.querySelectorAll('.tab').forEach(function(b){
     svg+='</g></svg>';
     return svg;
   }
-  j('/relations').then(function(d){
-    document.getElementById('graph-box').innerHTML=renderGraph(d.relations);
-    bindGraph();
-  }).catch(function(){document.getElementById('graph-box').textContent=t('load_fail');});
+  var showHistory=false;
+  function loadGraph(){
+    var url=showHistory?'/relations?include_invalid=true':'/relations';
+    j(url).then(function(d){
+      document.getElementById('graph-box').innerHTML=renderGraph(d.relations);
+      bindGraph();
+    }).catch(function(){document.getElementById('graph-box').textContent=t('load_fail');});
+  }
+  window.toggleHistory=function(){
+    showHistory=!showHistory;
+    var b=document.getElementById('btn-history');
+    if(b){b.style.borderColor=showHistory?'var(--accent)':'var(--border)';b.style.color=showHistory?'var(--accent)':'var(--text)';}
+    loadGraph();
+  };
+  loadGraph();
 
   function bindGraph(){
     var svg=document.getElementById('gsvg');

@@ -72,7 +72,9 @@ CREATE TABLE IF NOT EXISTS entity_relations (
     predicate TEXT NOT NULL,
     object TEXT NOT NULL,
     confidence REAL DEFAULT 1.0,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    valid_at REAL NOT NULL,
+    invalid_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_rel_subject ON entity_relations(subject);
 CREATE INDEX IF NOT EXISTS idx_rel_object ON entity_relations(object);
@@ -94,6 +96,7 @@ def init_database(db_path: Path | None = None) -> Path:
         _migrate_fts(conn)
         _migrate_embedding(conn)
         _migrate_consolidated(conn)
+        _migrate_relations_temporal(conn)
     return target
 
 
@@ -128,6 +131,25 @@ def _migrate_consolidated(conn: sqlite3.Connection) -> None:
     cols = [row["name"] for row in conn.execute("PRAGMA table_info(rings);")]
     if "consolidated" not in cols:
         conn.execute("ALTER TABLE rings ADD COLUMN consolidated INTEGER DEFAULT 0;")
+
+
+def _migrate_relations_temporal(conn: sqlite3.Connection) -> None:
+    """舊庫 entity_relations 補雙時態欄位 valid_at / invalid_at，既有資料 valid_at = created_at。"""
+    cols = [row["name"] for row in conn.execute("PRAGMA table_info(entity_relations);")]
+    if "valid_at" not in cols:
+        conn.execute("ALTER TABLE entity_relations ADD COLUMN valid_at REAL;")
+        conn.execute("UPDATE entity_relations SET valid_at = created_at WHERE valid_at IS NULL;")
+    if "invalid_at" not in cols:
+        conn.execute("ALTER TABLE entity_relations ADD COLUMN invalid_at REAL;")
+
+
+def _is_state_predicate(predicate: str) -> bool:
+    """判斷謂詞是否為單值「狀態類」：同 (subject, predicate) 不同 object 即代表事實更新，
+    舊關係自動失效。多值動詞（使用/開發/運行…）不失效，避免誤傷並列事實。"""
+    hints = ("为", "為", "于", "於", "位于", "位於", "居住", "属于", "屬於", "担任", "擔任",
+             "状态", "狀態", "版本", "邮箱", "郵箱", "电话", "電話", "价格", "價格", "售价",
+             "售價", "端口", "職位", "职位")
+    return any(h in predicate for h in hints)
 
 
 @contextmanager
@@ -301,21 +323,30 @@ class SylvaStore:
         object_: str,
         confidence: float = 1.0,
     ) -> bool:
-        """寫入實體關係三元組。同三元組冪等去重（返回 True 寫入，False 已存在）。"""
+        """寫入實體關係三元組。同三元組冪等去重（返回 True 寫入，False 已存在）。
+
+        雙時態：單值「狀態類」謂詞同 (subject, predicate) 不同 object 時，自動失效舊關係
+        （invalid_at 標記，保留歷史而非刪除），吸收 Graphiti 的事實演化語義。"""
         now = time.time()
         with get_connection(self.db_path) as conn:
             cur = conn.execute(
                 "SELECT id FROM entity_relations "
-                "WHERE subject = ? AND predicate = ? AND object = ?;",
+                "WHERE subject = ? AND predicate = ? AND object = ? AND invalid_at IS NULL;",
                 (subject, predicate, object_),
             )
             if cur.fetchone():
                 return False
+            if _is_state_predicate(predicate):
+                conn.execute(
+                    "UPDATE entity_relations SET invalid_at = ? "
+                    "WHERE subject = ? AND predicate = ? AND object != ? AND invalid_at IS NULL;",
+                    (now, subject, predicate, object_),
+                )
             conn.execute(
                 "INSERT INTO entity_relations "
-                "(subject, predicate, object, confidence, created_at) "
-                "VALUES (?, ?, ?, ?, ?);",
-                (subject, predicate, object_, confidence, now),
+                "(subject, predicate, object, confidence, created_at, valid_at) "
+                "VALUES (?, ?, ?, ?, ?, ?);",
+                (subject, predicate, object_, confidence, now, now),
             )
             return True
 
@@ -325,12 +356,12 @@ class SylvaStore:
         sql = """
         WITH RECURSIVE hops(subject, predicate, object, depth) AS (
             SELECT subject, predicate, object, 1
-            FROM entity_relations WHERE subject = ?
+            FROM entity_relations WHERE subject = ? AND invalid_at IS NULL
             UNION ALL
             SELECT er.subject, er.predicate, er.object, hops.depth + 1
             FROM entity_relations er
             JOIN hops ON er.subject = hops.object
-            WHERE hops.depth < ?
+            WHERE hops.depth < ? AND er.invalid_at IS NULL
         )
         SELECT subject, predicate, object, depth FROM hops;
         """
@@ -338,13 +369,15 @@ class SylvaStore:
             cur = conn.execute(sql, (subject, safe_depth))
             return [dict(row) for row in cur.fetchall()]
 
-    def all_relations(self) -> list[dict]:
-        """返回全部三元組（節點+邊），供看板圖譜渲染。"""
+    def all_relations(self, include_invalid: bool = False) -> list[dict]:
+        """返回三元組（節點+邊）供看板圖譜渲染。預設只返回有效關係；
+        include_invalid=True 一併返回已失效關係（含 invalid_at，供看板標記歷史事實）。"""
+        sql = "SELECT subject, predicate, object, confidence, invalid_at FROM entity_relations"
+        if not include_invalid:
+            sql += " WHERE invalid_at IS NULL"
+        sql += " ORDER BY created_at;"
         with get_connection(self.db_path) as conn:
-            cur = conn.execute(
-                "SELECT subject, predicate, object, confidence "
-                "FROM entity_relations ORDER BY created_at;"
-            )
+            cur = conn.execute(sql)
             return [dict(row) for row in cur.fetchall()]
 
     def get_low_frequency_rings(
