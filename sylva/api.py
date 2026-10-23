@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import base64
 import hmac
 import os
 from pathlib import Path
@@ -33,39 +32,44 @@ from sylva.primitives import SylvaKernel
 RING_TYPES = ("fact", "rule", "decision", "interaction")
 
 
-class _AuthMiddleware(BaseHTTPMiddleware):
-    """所有請求（除 /health 健康檢查）需 HTTP Basic Auth，含本機 hook。
+def _extract_token(request: Request) -> str:
+    """從請求提取密鑰：Bearer header / X-API-Key header / ?key= query。"""
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:].strip()
+    key = request.headers.get("x-api-key", "")
+    if key:
+        return key.strip()
+    return request.query_params.get("key", "").strip()
 
-    密碼由環境變量 SYLVA_AUTH_PASSWORD 提供（systemd EnvironmentFile），
-    未設置時放行（向後兼容，開發 / 測試環境）。hook 從同一密碼來源讀取，
-    用 Basic Auth 攜帶憑證，故同機其他進程也無法免密讀寫記憶。
+
+class _AuthMiddleware(BaseHTTPMiddleware):
+    """所有請求（除 /health 健康檢查）需密鑰（Bearer Token）認證，含本機 hook。
+
+    密鑰由環境變量 SYLVA_AUTH_TOKEN 提供（systemd EnvironmentFile），
+    未設置時放行（向後兼容，開發 / 測試環境）。接受三種傳遞方式：
+    Authorization: Bearer <token>、X-API-Key: <token>、URL ?key=<token>。
+    hook 從同一密鑰來源讀取並用 Bearer 攜帶，同機其他進程無法免密讀寫記憶。
     """
 
     async def dispatch(self, request: Request, call_next):
-        if request.url.path == "/health":
+        # /health 健康檢查與 / 看板 HTML 頁面免密（HTML 本身無數據，數據在唯讀端點）
+        if request.url.path in ("/health", "/"):
             return await call_next(request)
 
-        password = os.environ.get("SYLVA_AUTH_PASSWORD", "")
-        if not password:
+        token = os.environ.get("SYLVA_AUTH_TOKEN", "")
+        if not token:
             return await call_next(request)
 
-        auth = request.headers.get("authorization", "")
-        ok = False
-        if auth.startswith("Basic "):
-            try:
-                decoded = base64.b64decode(auth[6:]).decode("utf-8")
-                user, sep, pw = decoded.partition(":")
-                ok = bool(sep) and hmac.compare_digest(user, "sylva") and hmac.compare_digest(pw, password)
-            except (ValueError, UnicodeDecodeError):
-                ok = False
+        provided = _extract_token(request)
+        if provided and hmac.compare_digest(provided, token):
+            return await call_next(request)
 
-        if not ok:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "需要認證"},
-                headers={"WWW-Authenticate": 'Basic realm="Sylva"'},
-            )
-        return await call_next(request)
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "需要密鑰"},
+            headers={"WWW-Authenticate": 'Bearer realm="Sylva"'},
+        )
 
 
 class InjectRequest(BaseModel):

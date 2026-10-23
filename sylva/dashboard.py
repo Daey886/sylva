@@ -50,6 +50,14 @@ h2{font-size:15px;color:var(--accent);border-bottom:1px solid var(--border);padd
 </style>
 </head>
 <body>
+<div id="gate" style="display:none;max-width:360px;margin:80px auto;text-align:center">
+  <h1 style="color:#4caf7d;font-size:20px;margin-bottom:8px">🌳 Sylva 記憶看板</h1>
+  <p style="color:#8aa396;margin-bottom:16px">請輸入訪問密鑰</p>
+  <input id="keyinput" type="password" placeholder="粘貼密鑰" style="width:100%;padding:10px;background:#18211c;border:1px solid #26332c;border-radius:8px;color:#d7e3db;margin-bottom:12px;font-family:inherit">
+  <button id="keybtn" style="width:100%;padding:10px;background:#4caf7d;border:none;border-radius:8px;color:#08140e;font-weight:600;cursor:pointer;font-family:inherit">進入</button>
+  <p id="keyerr" style="color:#d46f6f;margin-top:10px;font-size:13px;display:none">密鑰無效，請重新輸入</p>
+</div>
+<div id="app">
 <header>
   <h1>🌳 Sylva 記憶看板</h1>
   <div class="stats" id="stats"></div>
@@ -64,8 +72,32 @@ h2{font-size:15px;color:var(--accent);border-bottom:1px solid var(--border);padd
   <section id="panel-rings" class="panel"></section>
   <section id="panel-checkpoint" class="panel"></section>
 </main>
+</div>
 <script>
-async function j(u){const r=await fetch(u);if(!r.ok)throw 0;return r.json();}
+function getKey(){
+  var m=location.search.match(/[?&]key=([^&]+)/);
+  if(m){var k=decodeURIComponent(m[1]);localStorage.setItem('sylva_key',k);history.replaceState(null,'',location.pathname);return k;}
+  return localStorage.getItem('sylva_key')||'';
+}
+var KEY=getKey();
+function showGate(err){
+  document.getElementById('app').style.display='none';
+  document.getElementById('gate').style.display='block';
+  if(err)document.getElementById('keyerr').style.display='block';
+}
+function j(u){
+  return fetch(u,{headers:KEY?{'Authorization':'Bearer '+KEY}:{}}).then(function(r){
+    if(r.status===401){localStorage.removeItem('sylva_key');KEY='';showGate(true);throw 0;}
+    if(!r.ok)throw 0;
+    return r.json();
+  });
+}
+if(!KEY){showGate(false);}
+document.getElementById('keybtn').onclick=function(){
+  var v=document.getElementById('keyinput').value.trim();
+  if(v){localStorage.setItem('sylva_key',v);location.reload();}
+};
+document.getElementById('keyinput').addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('keybtn').click();});
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function fmtTime(t){return t?new Date(t*1000).toLocaleString('zh-Hant'):'';}
 

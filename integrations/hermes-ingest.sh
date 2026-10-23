@@ -23,7 +23,6 @@ stdout : {} （寫線只做副作用寫入，不改寫 context）
   - 寫入失敗靜默降級，絕不影響 LLM（讀線才是關鍵路徑）
   - 只寫 user_message + assistant 回覆摘要，不做 LLM 提煉（Sylva 微內核哲學：確定性算法）
 """
-import base64
 import json
 import os
 import re
@@ -56,30 +55,29 @@ def _summarize(text: str) -> str:
 
 
 
-def _auth_password() -> str:
-    """從環境變量或 /etc/sylva/auth.env 讀取 Sylva 訪問密碼。"""
-    pw = os.environ.get("SYLVA_AUTH_PASSWORD", "")
-    if pw:
-        return pw
+def _auth_token() -> str:
+    """從環境變量或 /etc/sylva/auth.env 讀取 Sylva 訪問密鑰。"""
+    token = os.environ.get("SYLVA_AUTH_TOKEN", "")
+    if token:
+        return token
     try:
         with open("/etc/sylva/auth.env") as f:
             for line in f:
                 line = line.strip()
-                if line.startswith("SYLVA_AUTH_PASSWORD="):
+                if line.startswith("SYLVA_AUTH_TOKEN="):
                     return line.split("=", 1)[1]
     except OSError:
         pass
     return ""
 
 
-_AUTH_PW = _auth_password()
+_AUTH_TOKEN = _auth_token()
 
 
 def _headers() -> dict:
     headers = {"Content-Type": "application/json"}
-    if _AUTH_PW:
-        token = base64.b64encode(f"sylva:{_AUTH_PW}".encode()).decode()
-        headers["Authorization"] = f"Basic {token}"
+    if _AUTH_TOKEN:
+        headers["Authorization"] = f"Bearer {_AUTH_TOKEN}"
     return headers
 
 
