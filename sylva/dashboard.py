@@ -61,6 +61,9 @@ h2{font-size:15px;color:var(--accent);border-bottom:1px solid var(--border);padd
 .btn-save:hover{opacity:.9}
 .set-status{color:var(--muted);font-size:13px;margin-top:10px}
 .set-status.ok{color:#6fd49a}
+.graph-tools{display:flex;gap:6px;margin-bottom:10px}
+.graph-tools button{background:var(--panel);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 12px;cursor:pointer;font-size:14px;font-family:inherit}
+.graph-tools button:hover{border-color:var(--accent);color:var(--accent)}
 </style>
 </head>
 <body>
@@ -96,6 +99,11 @@ h2{font-size:15px;color:var(--accent);border-bottom:1px solid var(--border);padd
   <section id="panel-checkpoint" class="panel"></section>
   <section id="panel-relations" class="panel">
     <h2 data-i18n="relations_title">🕸️ 實體關係圖譜</h2>
+    <div class="graph-tools">
+      <button onclick="window.graphZoom&amp;&amp;window.graphZoom(1.3)" data-i18n-title="zoom_in">＋</button>
+      <button onclick="window.graphZoom&amp;&amp;window.graphZoom(0.77)" data-i18n-title="zoom_out">－</button>
+      <button onclick="window.graphReset&amp;&amp;window.graphReset()" data-i18n-title="zoom_reset">⤾</button>
+    </div>
     <div class="card" id="graph-box"></div>
   </section>
   <section id="panel-settings" class="panel">
@@ -123,7 +131,7 @@ var I18N={
   key_empty:'未配置，粘貼 API Key',save_btn:'保存設置',
   key_configured_ph:'已配置 {masked}（留空保持不變）',llm_enabled_model:'✅ LLM 已啟用（{model}）',
   llm_disabled:'⚠️ 未配置 LLM，純本地模式（實體抽取 / 睡眠昇華自動跳過）',
-  saved:'✅ 已保存',saved_llm:'✅ 已保存，LLM 已啟用',save_fail:'保存失敗，請檢查密鑰',
+  saved:'✅ 已保存',saved_llm:'✅ 已保存，LLM 已啟用',save_fail:'保存失敗，請檢查密鑰',zoom_in:'放大',zoom_out:'縮小',zoom_reset:'重置',
   load_fail:'載入失敗',stats_fail:'載入統計失敗',settings_fail:'載入設置失敗'
 },
 'zh-CN':{
@@ -137,7 +145,7 @@ var I18N={
   key_empty:'未配置，粘贴 API Key',save_btn:'保存设置',
   key_configured_ph:'已配置 {masked}（留空保持不变）',llm_enabled_model:'✅ LLM 已启用（{model}）',
   llm_disabled:'⚠️ 未配置 LLM，纯本地模式（实体抽取 / 睡眠升华自动跳过）',
-  saved:'✅ 已保存',saved_llm:'✅ 已保存，LLM 已启用',save_fail:'保存失败，请检查密钥',
+  saved:'✅ 已保存',saved_llm:'✅ 已保存，LLM 已启用',save_fail:'保存失败，请检查密钥',zoom_in:'放大',zoom_out:'缩小',zoom_reset:'重置',
   load_fail:'加载失败',stats_fail:'加载统计失败',settings_fail:'加载设置失败'
 },
 'en':{
@@ -151,7 +159,7 @@ var I18N={
   key_empty:'Not configured, paste API key',save_btn:'Save',
   key_configured_ph:'Configured {masked} (leave empty to keep)',llm_enabled_model:'✅ LLM enabled ({model})',
   llm_disabled:'⚠️ LLM not configured, local-only mode (extraction / sleep skipped)',
-  saved:'✅ Saved',saved_llm:'✅ Saved, LLM enabled',save_fail:'Save failed, check key',
+  saved:'✅ Saved',saved_llm:'✅ Saved, LLM enabled',save_fail:'Save failed, check key',zoom_in:'Zoom in',zoom_out:'Zoom out',zoom_reset:'Reset',
   load_fail:'Load failed',stats_fail:'Failed to load stats',settings_fail:'Failed to load settings'
 }
 };
@@ -164,6 +172,9 @@ function applyI18n(){
   document.querySelectorAll('[data-i18n]').forEach(function(el){
     var v=t(el.getAttribute('data-i18n'));
     if(el.tagName==='INPUT'){el.placeholder=v;}else{el.textContent=v;}
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(function(el){
+    el.title=t(el.getAttribute('data-i18n-title'));
   });
   document.title=t('app_title');
   document.documentElement.lang=LANG;
@@ -255,42 +266,77 @@ document.querySelectorAll('.tab').forEach(function(b){
     });
     var ns=Object.keys(nodes);
     if(!ns.length)return '<div class="empty">'+t('empty_relations')+'</div>';
-    var W=640,H=400,cx=W/2,cy=H/2,R=Math.min(W,H)/2-50;
-    ns.forEach(function(n,i){var a=2*Math.PI*i/ns.length;nodes[n].x=cx+R*Math.cos(a);nodes[n].y=cy+R*Math.sin(a);});
+    var W=760,H=520,cx=W/2,cy=H/2;
+    var R=Math.min(W,H)/2-70;
+    ns.forEach(function(n,i){var a=2*Math.PI*i/ns.length-Math.PI/2;nodes[n].x=cx+R*Math.cos(a);nodes[n].y=cy+R*Math.sin(a);});
     var disp={};ns.forEach(function(n){disp[n]={x:0,y:0};});
-    for(var it=0;it<140;it++){
+    var temp=1.0;
+    for(var it=0;it<500;it++){
       ns.forEach(function(n){disp[n].x=0;disp[n].y=0;});
       for(var i=0;i<ns.length;i++)for(var j=i+1;j<ns.length;j++){
-        var a=nodes[ns[i]],b=nodes[ns[j]],dx=a.x-b.x,dy=a.y-b.y,d=Math.sqrt(dx*dx+dy*dy)||1,f=900/(d*d);
+        var a=nodes[ns[i]],b=nodes[ns[j]],dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy,d=Math.sqrt(d2)||1,f=1400/d2;
         disp[ns[i]].x+=dx/d*f;disp[ns[i]].y+=dy/d*f;
         disp[ns[j]].x-=dx/d*f;disp[ns[j]].y-=dy/d*f;
       }
       edges.forEach(function(e){
-        var a=nodes[e.s],b=nodes[e.o],dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1,f=(d-90)*0.03;
+        var a=nodes[e.s],b=nodes[e.o],dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1,f=(d-110)*0.05;
         disp[e.s].x+=dx/d*f;disp[e.s].y+=dy/d*f;
         disp[e.o].x-=dx/d*f;disp[e.o].y-=dy/d*f;
       });
       ns.forEach(function(n){
-        nodes[n].x+=disp[n].x*0.6;nodes[n].y+=disp[n].y*0.6;
-        nodes[n].x=Math.max(18,Math.min(W-18,nodes[n].x));
-        nodes[n].y=Math.max(18,Math.min(H-18,nodes[n].y));
+        disp[n].x+=(cx-nodes[n].x)*0.015;
+        disp[n].y+=(cy-nodes[n].y)*0.015;
+        nodes[n].x+=disp[n].x*temp;nodes[n].y+=disp[n].y*temp;
       });
+      temp*=0.99;
     }
-    var svg='<svg width="100%" viewBox="0 0 '+W+' '+H+'" style="display:block">';
+    ns.forEach(function(n){
+      nodes[n].x=Math.max(30,Math.min(W-30,nodes[n].x));
+      nodes[n].y=Math.max(30,Math.min(H-30,nodes[n].y));
+    });
+    function sl(s,m){return s.length>m?s.slice(0,m)+'…':s;}
+    var svg='<svg id="gsvg" width="100%" height="520" viewBox="0 0 '+W+' '+H+'" style="display:block;cursor:grab;touch-action:none">';
+    svg+='<g id="gg">';
     edges.forEach(function(e){
       var a=nodes[e.s],b=nodes[e.o];
       svg+='<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+'" stroke="#2f4538" stroke-width="1.5"/>';
-      svg+='<text x="'+((a.x+b.x)/2)+'" y="'+((a.y+b.y)/2)+'" fill="#8aa899" font-size="10" text-anchor="middle">'+esc(e.p)+'</text>';
+      svg+='<text x="'+((a.x+b.x)/2)+'" y="'+((a.y+b.y)/2-4)+'" fill="#8aa899" font-size="9" text-anchor="middle">'+esc(sl(e.p,10))+'<title>'+esc(e.p)+'</title></text>';
     });
     ns.forEach(function(n){
-      svg+='<circle cx="'+nodes[n].x+'" cy="'+nodes[n].y+'" r="'+(4+nodes[n].d*2)+'" fill="#6fd49a"/>';
-      svg+='<text x="'+nodes[n].x+'" y="'+(nodes[n].y+20)+'" fill="#dce6e0" font-size="11" text-anchor="middle">'+esc(n)+'</text>';
+      var r=4+Math.min(nodes[n].d,8)*1.8;
+      svg+='<circle cx="'+nodes[n].x+'" cy="'+nodes[n].y+'" r="'+r+'" fill="#6fd49a"/>';
+      svg+='<text x="'+nodes[n].x+'" y="'+(nodes[n].y+r+13)+'" fill="#dce6e0" font-size="11" text-anchor="middle">'+esc(sl(n,14))+'<title>'+esc(n)+'</title></text>';
     });
-    return svg+'</svg>';
+    svg+='</g></svg>';
+    return svg;
   }
   j('/relations').then(function(d){
     document.getElementById('graph-box').innerHTML=renderGraph(d.relations);
+    bindGraph();
   }).catch(function(){document.getElementById('graph-box').textContent=t('load_fail');});
+
+  function bindGraph(){
+    var svg=document.getElementById('gsvg');
+    if(!svg)return;
+    var g=document.getElementById('gg');
+    var scale=1,tx=0,ty=0;
+    function apply(){g.setAttribute('transform','translate('+tx+','+ty+') scale('+scale+')');}
+    svg.addEventListener('wheel',function(e){
+      e.preventDefault();
+      var rect=svg.getBoundingClientRect();
+      var mx=e.clientX-rect.left,my=e.clientY-rect.top;
+      var ns=Math.min(8,Math.max(0.2,scale*(e.deltaY<0?1.12:0.89)));
+      tx=mx-(mx-tx)*(ns/scale);ty=my-(my-ty)*(ns/scale);
+      scale=ns;apply();
+    },{passive:false});
+    var dragging=false,sx=0,sy=0;
+    svg.addEventListener('mousedown',function(e){dragging=true;sx=e.clientX-tx;sy=e.clientY-ty;svg.style.cursor='grabbing';});
+    window.addEventListener('mousemove',function(e){if(dragging){tx=e.clientX-sx;ty=e.clientY-sy;apply();}});
+    window.addEventListener('mouseup',function(){dragging=false;svg.style.cursor='grab';});
+    svg.addEventListener('dblclick',function(){scale=1;tx=0;ty=0;apply();});
+    window.graphZoom=function(f){var ns=Math.min(8,Math.max(0.2,scale*f));var rect=svg.getBoundingClientRect();var mx=rect.width/2,my=rect.height/2;tx=mx-(mx-tx)*(ns/scale);ty=my-(my-ty)*(ns/scale);scale=ns;apply();};
+    window.graphReset=function(){scale=1;tx=0;ty=0;apply();};
+  }
 
   var setStatus=document.getElementById('set-status');
   function loadSettings(){
