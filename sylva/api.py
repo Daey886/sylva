@@ -183,6 +183,11 @@ def create_app(db_path: Path | None = None) -> FastAPI:
             store.set_setting("llm_api_key", req.api_key.strip())
         return {"ok": True, "llm_available": llm_available()}
 
+    @app.get("/relations")
+    def list_relations() -> dict:
+        """看板圖譜：返回全部三元組（節點+邊）。"""
+        return {"relations": kernel.store.all_relations()}
+
     @app.post("/core")
     def set_core(req: CoreRequest) -> dict:
         kernel.store.set_core(req.key, req.content)

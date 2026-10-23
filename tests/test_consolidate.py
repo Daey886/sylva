@@ -12,6 +12,7 @@ from sylva.core import SylvaStore
 @pytest.fixture
 def store(tmp_path, monkeypatch):
     monkeypatch.delenv("SYLVA_LLM_API_KEY", raising=False)
+    monkeypatch.setenv("SYLVA_HOME", str(tmp_path))  # 隔离 settings 表，避免读到生产库 LLM 配置
     return SylvaStore(tmp_path / "test.db")
 
 

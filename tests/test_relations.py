@@ -11,6 +11,7 @@ from sylva.relations import extract_relations, ingest_relations, relation_recall
 @pytest.fixture
 def store(tmp_path, monkeypatch):
     monkeypatch.delenv("SYLVA_LLM_API_KEY", raising=False)
+    monkeypatch.setenv("SYLVA_HOME", str(tmp_path))  # 隔离 settings 表，避免读到生产库 LLM 配置
     return SylvaStore(tmp_path / "test.db")
 
 
@@ -50,3 +51,28 @@ def test_inject_includes_relations(store):
 def test_extract_relations_no_llm_returns_empty(store):
     assert extract_relations("木頭開發了Sylva") == []
     assert ingest_relations(store, "木頭開發了Sylva") == 0
+
+def test_all_relations(store):
+    store.add_relation("甲", "朋友", "乙")
+    store.add_relation("乙", "借車給", "丙")
+    rels = store.all_relations()
+    assert len(rels) == 2
+    assert {r["predicate"] for r in rels} == {"朋友", "借車給"}
+
+
+def test_relations_api(tmp_path, monkeypatch):
+    monkeypatch.delenv("SYLVA_LLM_API_KEY", raising=False)
+    monkeypatch.setenv("SYLVA_AUTH_TOKEN", "tok123")
+    from starlette.testclient import TestClient
+
+    from sylva.api import create_app
+
+    db = tmp_path / "sylva.db"
+    store = SylvaStore(db)
+    store.add_relation("木頭", "開發", "Sylva")
+    store.add_relation("Sylva", "使用", "SQLite")
+    client = TestClient(create_app(db_path=db))
+    d = client.get("/relations", headers={"Authorization": "Bearer tok123"}).json()
+    assert len(d["relations"]) == 2
+    assert {r["predicate"] for r in d["relations"]} == {"開發", "使用"}
+

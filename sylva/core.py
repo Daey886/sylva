@@ -338,6 +338,15 @@ class SylvaStore:
             cur = conn.execute(sql, (subject, safe_depth))
             return [dict(row) for row in cur.fetchall()]
 
+    def all_relations(self) -> list[dict]:
+        """返回全部三元組（節點+邊），供看板圖譜渲染。"""
+        with get_connection(self.db_path) as conn:
+            cur = conn.execute(
+                "SELECT subject, predicate, object, confidence "
+                "FROM entity_relations ORDER BY created_at;"
+            )
+            return [dict(row) for row in cur.fetchall()]
+
     def get_low_frequency_rings(
         self,
         max_importance: float = 0.5,
