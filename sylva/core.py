@@ -4,6 +4,7 @@ Strict ContextManager DB lifecycle, single-database architecture, zero connectio
 """
 
 import os
+import re
 import sqlite3
 import time
 from collections.abc import Generator
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS rings (
 -- 4. FTS5 全文索引（年轮全文搜索）
 CREATE VIRTUAL TABLE IF NOT EXISTS rings_fts USING fts5(
     content,
+    tokenize='trigram',
     content='rings',
     content_rowid='id'
 );
@@ -69,7 +71,27 @@ def init_database(db_path: Path | None = None) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     with get_connection(target) as conn:
         conn.executescript(SCHEMA_SQL)
+        _migrate_fts(conn)
     return target
+
+
+def _migrate_fts(conn: sqlite3.Connection) -> None:
+    """旧库 rings_fts 若为非 trigram 分词器，重建索引以支持中文子串召回。"""
+    cur = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='rings_fts';"
+    )
+    row = cur.fetchone()
+    if row and row["sql"] and "trigram" not in row["sql"]:
+        conn.executescript(
+            "DROP TRIGGER IF EXISTS rings_ai;"
+            "DROP TRIGGER IF EXISTS rings_ad;"
+            "DROP TRIGGER IF EXISTS rings_au;"
+            "DROP TABLE IF EXISTS rings_fts;"
+        )
+        conn.executescript(SCHEMA_SQL)
+        conn.execute(
+            "INSERT INTO rings_fts(rowid, content) SELECT id, content FROM rings;"
+        )
 
 
 @contextmanager
@@ -165,17 +187,18 @@ class SylvaStore:
                 return False
 
     def search_fts(self, query: str, limit: int = 5) -> list[dict]:
-        """基于 SQLite FTS5 的快速毫秒级全文精确检索。支持多词 OR 匹配。"""
+        """基于 SQLite FTS5 trigram 的毫秒级子串召回。支持中英文与多词 OR。"""
         if not query or not query.strip():
             return []
         safe_limit = max(1, min(limit, 50))
-        # 提取有效检索词
-        raw_tokens = "".join([c if c.isalnum() or c in "_-" else " " for c in query]).split()
-        if not raw_tokens:
+        # trigram 分词器最小匹配长度为 3 字符：拆词后过滤短 token
+        raw_tokens = re.findall(r"\w+", query, flags=re.UNICODE)
+        tokens = [t for t in raw_tokens if len(t) >= 3]
+        if not tokens:
             return []
 
-        # 构造 FTS5 查询：多词间使用 OR 提升召回容错
-        fts_query = " OR ".join(f'"{token}"' for token in raw_tokens)
+        # 构造 FTS5 查询：多词间使用 OR 提升召回容错（token 仅含 \w，无需转义）
+        fts_query = " OR ".join(f'"{token}"' for token in tokens)
 
         sql = """
         SELECT r.id, r.ring_type, r.content, r.importance, r.created_at, bm25(rings_fts) as rank
