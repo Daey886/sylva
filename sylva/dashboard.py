@@ -74,12 +74,17 @@ h2{font-size:15px;color:var(--accent);border-bottom:1px solid var(--border);padd
   <button class="tab active" data-tab="cores">🌰 核心記憶</button>
   <button class="tab" data-tab="rings">🪵 年輪</button>
   <button class="tab" data-tab="checkpoint">📌 斷點</button>
+  <button class="tab" data-tab="relations">🕸️ 關係</button>
   <button class="tab" data-tab="settings">⚙️ 設置</button>
 </nav>
 <main>
   <section id="panel-cores" class="panel active"></section>
   <section id="panel-rings" class="panel"></section>
   <section id="panel-checkpoint" class="panel"></section>
+  <section id="panel-relations" class="panel">
+    <h2>🕸️ 實體關係圖譜</h2>
+    <div class="card" id="graph-box"></div>
+  </section>
   <section id="panel-settings" class="panel">
     <h2>⚙️ 功能設置</h2>
     <div class="card">
@@ -169,6 +174,53 @@ document.querySelectorAll('.tab').forEach(function(b){
       '<div class="card"><div class="meta">'+esc(cp.session_id)+'</div><div class="content">'+esc(cp.context)+'</div></div>':
       '<div class="empty">尚無斷點</div>');
   }).catch(function(){document.getElementById('panel-checkpoint').textContent='載入失敗';});
+
+  function renderGraph(rels){
+    var nodes={},edges=[];
+    (rels||[]).forEach(function(r){
+      if(!nodes[r.subject])nodes[r.subject]={n:r.subject,d:0};
+      if(!nodes[r.object])nodes[r.object]={n:r.object,d:0};
+      nodes[r.subject].d++;nodes[r.object].d++;
+      edges.push({s:r.subject,p:r.predicate,o:r.object});
+    });
+    var ns=Object.keys(nodes);
+    if(!ns.length)return '<div class="empty">尚無實體關係（注入記憶後自動抽取）</div>';
+    var W=640,H=400,cx=W/2,cy=H/2,R=Math.min(W,H)/2-50;
+    ns.forEach(function(n,i){var a=2*Math.PI*i/ns.length;nodes[n].x=cx+R*Math.cos(a);nodes[n].y=cy+R*Math.sin(a);});
+    var disp={};ns.forEach(function(n){disp[n]={x:0,y:0};});
+    for(var it=0;it<140;it++){
+      ns.forEach(function(n){disp[n].x=0;disp[n].y=0;});
+      for(var i=0;i<ns.length;i++)for(var j=i+1;j<ns.length;j++){
+        var a=nodes[ns[i]],b=nodes[ns[j]],dx=a.x-b.x,dy=a.y-b.y,d=Math.sqrt(dx*dx+dy*dy)||1,f=900/(d*d);
+        disp[ns[i]].x+=dx/d*f;disp[ns[i]].y+=dy/d*f;
+        disp[ns[j]].x-=dx/d*f;disp[ns[j]].y-=dy/d*f;
+      }
+      edges.forEach(function(e){
+        var a=nodes[e.s],b=nodes[e.o],dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1,f=(d-90)*0.03;
+        disp[e.s].x+=dx/d*f;disp[e.s].y+=dy/d*f;
+        disp[e.o].x-=dx/d*f;disp[e.o].y-=dy/d*f;
+      });
+      ns.forEach(function(n){
+        nodes[n].x+=disp[n].x*0.6;nodes[n].y+=disp[n].y*0.6;
+        nodes[n].x=Math.max(18,Math.min(W-18,nodes[n].x));
+        nodes[n].y=Math.max(18,Math.min(H-18,nodes[n].y));
+      });
+    }
+    var svg='<svg width="100%" viewBox="0 0 '+W+' '+H+'" style="display:block">';
+    edges.forEach(function(e){
+      var a=nodes[e.s],b=nodes[e.o];
+      svg+='<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+'" stroke="#2f4538" stroke-width="1.5"/>';
+      svg+='<text x="'+((a.x+b.x)/2)+'" y="'+((a.y+b.y)/2)+'" fill="#8aa899" font-size="10" text-anchor="middle">'+esc(e.p)+'</text>';
+    });
+    ns.forEach(function(n){
+      svg+='<circle cx="'+nodes[n].x+'" cy="'+nodes[n].y+'" r="'+(4+nodes[n].d*2)+'" fill="#6fd49a"/>';
+      svg+='<text x="'+nodes[n].x+'" y="'+(nodes[n].y+20)+'" fill="#dce6e0" font-size="11" text-anchor="middle">'+esc(n)+'</text>';
+    });
+    return svg+'</svg>';
+  }
+  j('/relations').then(function(d){
+    document.getElementById('graph-box').innerHTML=renderGraph(d.relations);
+  }).catch(function(){document.getElementById('graph-box').textContent='載入失敗';});
 
   var setStatus=document.getElementById('set-status');
   function loadSettings(){
