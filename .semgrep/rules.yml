@@ -1,0 +1,17 @@
+rules:
+  - id: sylva-no-raw-exception-str
+    patterns:
+      - pattern-either:
+          - pattern: 'return {"error": str($E), ...}'
+          - pattern: 'return {"message": str($E), ...}'
+          - pattern: 'raise HTTPException(..., detail=str($E))'
+    message: "禁止在响应中直接泄露原始异常 str(e)，应记录日志并返回通用或脱敏错误提示。"
+    languages: [python]
+    severity: ERROR
+
+  - id: sylva-enforce-db-context
+    patterns:
+      - pattern: 'sqlite3.connect(...)'
+    message: "禁止使用裸 sqlite3.connect，必须通过 sylva.core.get_db() 上下文管理器安全访问数据库。"
+    languages: [python]
+    severity: WARNING
