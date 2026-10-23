@@ -267,7 +267,7 @@ document.querySelectorAll('.tab').forEach(function(b){
     });
     var ns=Object.keys(nodes);
     if(!ns.length)return '<div class="empty">'+t('empty_relations')+'</div>';
-    var cell=90;
+    var cell=120;
     var span=Math.max(760,Math.sqrt(ns.length)*cell+140);
     var W=span,H=span,cx=W/2,cy=H/2;
     ns.forEach(function(n){nodes[n].x=cx+(Math.random()-0.5)*80;nodes[n].y=cy+(Math.random()-0.5)*80;nodes[n].vx=0;nodes[n].vy=0;});
@@ -278,12 +278,12 @@ document.querySelectorAll('.tab').forEach(function(b){
       for(gi=0;gi<ns.length;gi++){nodes[ns[gi]].vx=0;nodes[ns[gi]].vy=0;}
       for(gi=0;gi<ns.length;gi++)for(gj=gi+1;gj<ns.length;gj++){
         gA=nodes[ns[gi]];gB=nodes[ns[gj]];gdx=gA.x-gB.x;gdy=gA.y-gB.y;gd2=gdx*gdx+gdy*gdy;
-        if(gd2<1)gd2=1;gd=Math.sqrt(gd2);gf=40000/gd2;
+        if(gd2<1)gd2=1;gd=Math.sqrt(gd2);gf=4000/gd2;
         gA.vx+=gdx/gd*gf;gA.vy+=gdy/gd*gf;gB.vx-=gdx/gd*gf;gB.vy-=gdy/gd*gf;
       }
       for(gi=0;gi<ns.length;gi++)for(gj=gi+1;gj<ns.length;gj++){
         gA=nodes[ns[gi]];gB=nodes[ns[gj]];gdx=gA.x-gB.x;gdy=gA.y-gB.y;gd=Math.sqrt(gdx*gdx+gdy*gdy)||0.1;
-        gminD=gA.r+gB.r+16;
+        gminD=gA.r+gB.r+22;
         if(gd<gminD){gp=(gminD-gd)*0.7;gux=gdx/gd;guy=gdy/gd;gA.vx+=gux*gp;gA.vy+=guy*gp;gB.vx-=gux*gp;gB.vy-=guy*gp;}
       }
       edges.forEach(function(ge){
@@ -293,7 +293,7 @@ document.querySelectorAll('.tab').forEach(function(b){
       });
       for(gi=0;gi<ns.length;gi++){
         gA=nodes[ns[gi]];
-        gA.vx+=(cx-gA.x)*0.004;gA.vy+=(cy-gA.y)*0.004;
+        gA.vx+=(cx-gA.x)*0.03;gA.vy+=(cy-gA.y)*0.03;
       }
       for(gi=0;gi<ns.length;gi++){
         gA=nodes[ns[gi]];gA.x+=gA.vx*ga;gA.y+=gA.vy*ga;
