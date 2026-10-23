@@ -55,3 +55,17 @@ def test_existing_endpoints_unaffected():
     assert c.get("/health").status_code == 200
     assert c.post("/inject", json={"query": "測試"}).status_code == 200
     assert c.post("/ring", json={}).status_code == 200
+
+def test_dashboard_i18n_framework():
+    c = _client()
+    html = c.get("/").text
+    # 三語字典鍵
+    assert "zh-CN" in html and "zh-TW" in html and "'en'" in html
+    # 語言選擇器 + 母語名稱
+    assert 'id="lang"' in html
+    assert "简体中文" in html and "繁體中文" in html and "English" in html
+    # data-i18n 標記
+    assert "data-i18n" in html
+    # 三語關鍵詞（簡體 / 英文 / 繁體預設）
+    assert "核心记忆" in html and "Core Memories" in html and "年輪" in html
+
