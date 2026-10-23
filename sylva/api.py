@@ -30,6 +30,7 @@ from sylva.core import SylvaStore
 from sylva.dashboard import mount_dashboard
 from sylva.llm import llm_available
 from sylva.primitives import SylvaKernel
+from sylva.relations import ingest_relations
 
 RING_TYPES = ("fact", "rule", "decision", "interaction")
 
@@ -147,7 +148,13 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         written = kernel.ingest(
             content=req.content, ring_type=req.ring_type, importance=req.importance
         )
-        return {"written": written, "ring_type": req.ring_type}
+        # 抽取實體關係（可選 LLM，未配置則跳過）
+        extracted = ingest_relations(kernel.store, req.content)
+        return {
+            "written": written,
+            "ring_type": req.ring_type,
+            "relations_extracted": extracted,
+        }
 
     @app.post("/ring")
     def ring(req: RingRequest) -> dict:
