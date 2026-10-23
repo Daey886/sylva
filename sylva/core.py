@@ -254,3 +254,28 @@ class SylvaStore:
                 "FROM rings WHERE embedding IS NOT NULL;"
             )
             return [dict(row) for row in cur.fetchall()]
+
+    def list_rings(self, limit: int = 500, offset: int = 0) -> list[dict]:
+        """列出年輪（倒序，供唯讀看板）。"""
+        safe_limit = max(1, min(limit, 2000))
+        safe_offset = max(0, offset)
+        with get_connection(self.db_path) as conn:
+            cur = conn.execute(
+                "SELECT id, ring_type, content, importance, created_at, decayed_at "
+                "FROM rings ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;",
+                (safe_limit, safe_offset),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def stats(self) -> dict:
+        """看板統計：各表計數與資料庫大小。"""
+        with get_connection(self.db_path) as conn:
+            rings = conn.execute("SELECT COUNT(*) FROM rings;").fetchone()[0]
+            cores = conn.execute("SELECT COUNT(*) FROM core_memory;").fetchone()[0]
+            checkpoints = conn.execute("SELECT COUNT(*) FROM checkpoints;").fetchone()[0]
+        return {
+            "rings": rings,
+            "cores": cores,
+            "checkpoints": checkpoints,
+            "db_bytes": self.db_path.stat().st_size,
+        }
