@@ -22,6 +22,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from sylva.core import SylvaStore
+from sylva.dashboard import mount_dashboard
 from sylva.primitives import SylvaKernel
 
 RING_TYPES = ("fact", "rule", "decision", "interaction")
@@ -111,6 +112,8 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         if ctx is None:
             raise HTTPException(status_code=404, detail=f"断点 [{session_id}] 不存在")
         return {"session_id": session_id, "context": ctx}
+
+    mount_dashboard(app, kernel)
 
     return app
 
