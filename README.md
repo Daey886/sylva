@@ -30,7 +30,8 @@
 ## 快速開始
 
 ```bash
-pip install -e .
+pip install -e .               # 核心：FTS5 關鍵詞召回
+pip install -e ".[semantic]"   # 可選：FastEmbed 語義召回（未裝自動降級純 FTS5）
 ```
 
 ### CLI
@@ -91,6 +92,7 @@ chmod +x ~/.hermes/agent-hooks/sylva-hook.sh
 ```
 sylva/
 ├── core.py          # 儲存微內核：SQLite WAL + FTS5 trigram 召回
+├── search.py        # 雙軌檢索：FTS5 關鍵詞 + FastEmbed 語義向量
 ├── primitives.py    # 三大原語：inject / ingest / ring
 ├── cli.py           # Typer 命令列入口
 └── api.py           # FastAPI HTTP 服務
@@ -113,7 +115,7 @@ tests/
 - [x] 階段二：`core.py` 儲存微內核（SQLite WAL + FTS5）
 - [x] 階段三：`primitives.py` 三大原語
 - [x] 階段四：HTTP API / CLI / Hermes Hook 落地接入
-- [ ] 階段五：FastEmbed 本地語義向量召回（雙軌第二軌）
+- [x] 階段五：FastEmbed 本地語義向量召回（雙軌第二軌）
 
 ## License
 
