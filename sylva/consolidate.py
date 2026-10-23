@@ -9,7 +9,7 @@ import hashlib
 import json
 
 from sylva.core import SylvaStore
-from sylva.llm import complete, llm_available
+from sylva.llm import SYLVA_PERSONA, complete, llm_available
 
 _SLEEP_PROMPT = """以下是一組低頻情景記憶碎片，請把它們聚類歸納為 1-3 條穩定的語義記憶（事實或長期偏好）。
 只輸出 JSON 陣列，每個元素為 {{"content": "歸納出的語義記憶"}}。沒有可歸納的則輸出 []。
@@ -45,7 +45,7 @@ def sleep_consolidate(store: SylvaStore, limit: int = 50) -> dict[str, int]:
         [
             {
                 "role": "system",
-                "content": "你是記憶鞏固器，把情景碎片歸納為穩定語義記憶，只輸出 JSON 陣列。",
+                "content": SYLVA_PERSONA + "此刻你作為夜間沉睡者，讓白天的瑣碎記憶沉澱昇華為新的年輪。只輸出 JSON 陣列。",
             },
             {"role": "user", "content": _SLEEP_PROMPT.format(fragments=fragment_lines)},
         ],

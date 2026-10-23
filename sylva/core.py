@@ -76,6 +76,12 @@ CREATE TABLE IF NOT EXISTS entity_relations (
 );
 CREATE INDEX IF NOT EXISTS idx_rel_subject ON entity_relations(subject);
 CREATE INDEX IF NOT EXISTS idx_rel_object ON entity_relations(object);
+
+-- 5. Settings (功能設置)：看板可配置的鍵值對（LLM 配置等）
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -363,6 +369,23 @@ class SylvaStore:
                 tuple(ring_ids),
             )
             return max(0, cur.rowcount)
+
+    def get_setting(self, key: str, default: str = "") -> str:
+        """讀取功能設置項；不存在返回 default。"""
+        with get_connection(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = ?;", (key,)
+            ).fetchone()
+            return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        """寫入功能設置項（UPSERT）。"""
+        with get_connection(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+                (key, value),
+            )
 
     def stats(self) -> dict:
         """看板統計：各表計數與資料庫大小。"""

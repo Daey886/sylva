@@ -47,6 +47,14 @@ h2{font-size:15px;color:var(--accent);border-bottom:1px solid var(--border);padd
 .tag.fact{background:#1e3a2a;color:#6fd49a}.tag.rule{background:#1e2c3a;color:#6fb3d4}
 .tag.decision{background:#3a2a1e;color:#d4a96f}.tag.interaction{background:#2e2a3a;color:#b9a6d4}
 .empty{color:var(--muted);font-style:italic}
+.field{margin-bottom:14px}
+.field label{display:block;color:var(--muted);font-size:12px;margin-bottom:5px}
+.field input{width:100%;padding:10px;background:#0f1512;border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:14px}
+.field input:focus{outline:none;border-color:var(--accent)}
+.btn-save{width:100%;padding:11px;background:var(--accent);border:none;border-radius:8px;color:#08140e;font-weight:600;cursor:pointer;font-family:inherit;font-size:14px;margin-top:6px}
+.btn-save:hover{opacity:.9}
+.set-status{color:var(--muted);font-size:13px;margin-top:10px}
+.set-status.ok{color:#6fd49a}
 </style>
 </head>
 <body>
@@ -66,11 +74,22 @@ h2{font-size:15px;color:var(--accent);border-bottom:1px solid var(--border);padd
   <button class="tab active" data-tab="cores">🌰 核心記憶</button>
   <button class="tab" data-tab="rings">🪵 年輪</button>
   <button class="tab" data-tab="checkpoint">📌 斷點</button>
+  <button class="tab" data-tab="settings">⚙️ 設置</button>
 </nav>
 <main>
   <section id="panel-cores" class="panel active"></section>
   <section id="panel-rings" class="panel"></section>
   <section id="panel-checkpoint" class="panel"></section>
+  <section id="panel-settings" class="panel">
+    <h2>⚙️ 功能設置</h2>
+    <div class="card">
+      <div class="field"><label>LLM Base URL（OpenAI 兼容）</label><input id="set-base" placeholder="http://192.168.10.88:20127/v1"></div>
+      <div class="field"><label>LLM 模型</label><input id="set-model" placeholder="cbai/deepseek-v4.1-flash"></div>
+      <div class="field"><label>API Key</label><input id="set-key" type="password" placeholder="未配置，粘貼 API Key"></div>
+      <button id="set-save" class="btn-save">保存設置</button>
+      <div id="set-status" class="set-status"></div>
+    </div>
+  </section>
 </main>
 </div>
 <script>
@@ -91,6 +110,14 @@ function j(u){
     if(!r.ok)throw 0;
     return r.json();
   });
+}
+function p(u,body){
+  return fetch(u,{method:'POST',headers:Object.assign({'Content-Type':'application/json'},KEY?{'Authorization':'Bearer '+KEY}:{}),body:JSON.stringify(body)})
+    .then(function(r){
+      if(r.status===401){localStorage.removeItem('sylva_key');KEY='';showGate(true);throw 0;}
+      if(!r.ok)throw 0;
+      return r.json();
+    });
 }
 if(!KEY){showGate(false);}
 document.getElementById('keybtn').onclick=function(){
@@ -142,6 +169,32 @@ document.querySelectorAll('.tab').forEach(function(b){
       '<div class="card"><div class="meta">'+esc(cp.session_id)+'</div><div class="content">'+esc(cp.context)+'</div></div>':
       '<div class="empty">尚無斷點</div>');
   }).catch(function(){document.getElementById('panel-checkpoint').textContent='載入失敗';});
+
+  var setStatus=document.getElementById('set-status');
+  function loadSettings(){
+    j('/settings').then(function(s){
+      document.getElementById('set-base').value=s.llm_base_url||'';
+      document.getElementById('set-model').value=s.llm_model||'';
+      document.getElementById('set-key').value='';
+      document.getElementById('set-key').placeholder=s.has_key?('已配置 '+s.api_key_masked+'（留空保持不變）'):'未配置，粘貼 API Key';
+      setStatus.textContent=s.llm_available?('✅ LLM 已啟用（'+esc(s.llm_model||'')+'）'):'⚠️ 未配置 LLM，純本地模式（實體抽取 / 睡眠昇華自動跳過）';
+      setStatus.className='set-status'+(s.llm_available?' ok':'');
+    }).catch(function(){setStatus.textContent='載入設置失敗';setStatus.className='set-status';});
+  }
+  loadSettings();
+  document.getElementById('set-save').onclick=function(){
+    var body={
+      llm_base_url:document.getElementById('set-base').value.trim(),
+      llm_model:document.getElementById('set-model').value.trim(),
+      api_key:document.getElementById('set-key').value.trim()
+    };
+    p('/settings',body).then(function(r){
+      setStatus.textContent='✅ 已保存'+(r.llm_available?'，LLM 已啟用':'');
+      setStatus.className='set-status ok';
+      document.getElementById('set-key').value='';
+      loadSettings();
+    }).catch(function(){setStatus.textContent='保存失敗，請檢查密鑰';setStatus.className='set-status';});
+  };
 })();
 </script>
 </body>
