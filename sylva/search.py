@@ -1,8 +1,7 @@
 """Sylva Search: 雙軌檢索（FTS5 關鍵詞 + FastEmbed 語義向量）。
 
-語義召回為可選增強：未安裝 `fastembed` 時，`hybrid_search` 優雅降級為純 FTS5
-關鍵詞召回，不影響核心功能。向量以 float32 BLOB 存於 SQLite 單庫，召回時
-內存暴力餘弦（個人記憶規模毫秒級），不引入重型向量數據庫。
+語義召回為可選增強：未裝 fastembed 時優雅降級純 FTS5；向量以 float32 BLOB 存
+SQLite 單庫，內存暴力餘弦（個人規模毫秒級），不引入重型向量數據庫。
 """
 
 import struct
@@ -14,7 +13,6 @@ _embedder = None
 
 
 def semantic_available() -> bool:
-    """檢查 FastEmbed 可選依賴是否已安裝。"""
     try:
         import fastembed  # noqa: F401
 
@@ -34,7 +32,6 @@ def _get_embedder():
 
 
 def encode(texts: list[str]) -> list[list[float]]:
-    """批量嵌入文本，返回 float 向量列表。"""
     return [vec.tolist() for vec in _get_embedder().embed(texts)]
 
 
@@ -57,7 +54,6 @@ def cosine(a: list[float], b: list[float]) -> float:
 
 
 def _ensure_embeddings(store: SylvaStore) -> None:
-    """懶索引：為尚未嵌入向量的年輪批量補嵌。"""
     pending = store.get_rings_without_embedding()
     if not pending:
         return
@@ -93,3 +89,20 @@ def hybrid_search(store: SylvaStore, query: str, limit: int = 5) -> list[dict]:
         # 語義軌道為 best-effort 增強：模型缺失、下載失敗、推理錯誤均降級為純關鍵詞召回
         return results
     return results
+
+
+def find_similar_pairs(rings: list[dict], threshold: float = 0.92) -> list[tuple[int, int, float]]:
+    """找出語義相似度超閾值的年輪對 (id_a, id_b, similarity)，用於去重合併。"""
+    if len(rings) < 2:
+        return []
+    import numpy as np
+    ids = [r["id"] for r in rings]
+    m = np.stack([np.frombuffer(r["embedding"], dtype=np.float32) for r in rings])
+    m = m / np.maximum(np.linalg.norm(m, axis=1, keepdims=True), 1e-12)
+    sim = m @ m.T
+    return [
+        (ids[i], ids[j], float(sim[i, j]))
+        for i in range(len(rings))
+        for j in range(i + 1, len(rings))
+        if sim[i, j] > threshold
+    ]

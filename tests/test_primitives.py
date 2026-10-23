@@ -81,3 +81,43 @@ def test_kernel_ingest_and_consolidation():
 
         # 验证高价值事实仍在
         assert store.search_fts("禁止裸连接") != []
+
+
+def test_ring_consolidate_semantic_merge(monkeypatch):
+    from sylva import primitives, search
+
+    # ring_consolidate 在 primitives 模組內，須 mock primitives 的綁定引用
+    # （from sylva.search import semantic_available 是獨立引用，mock search 模組無效）
+    monkeypatch.setattr(primitives, "semantic_available", lambda: True)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "test_semantic.db"
+        store = SylvaStore(db_path)
+        kernel = SylvaKernel(store)
+
+        # 两条语义相似但内容不同的年轮
+        kernel.ingest("用户偏好 SQLite 单文件", ring_type="fact", importance=0.6)
+        kernel.ingest(
+            "用户偏好 SQLite 单文件存储方案", ring_type="fact", importance=0.9
+        )
+
+        # 补嵌向量（用 pack 构造，不依赖真实模型）
+        for ring in store.get_rings_without_embedding():
+            store.set_embedding(ring["id"], search.pack([1.0, 0.0, 0.0]))
+
+        all_rings = store.get_rings_with_embedding()
+        id_low = min(r["id"] for r in all_rings)
+        id_high = max(r["id"] for r in all_rings)
+
+        # mock 相似对查找，隔离真实模型
+        monkeypatch.setattr(
+            primitives,
+            "find_similar_pairs",
+            lambda rings, threshold=0.92: [(id_high, id_low, 0.95)],
+        )
+
+        report = kernel.ring_consolidate()
+        assert report["merged_rings"] == 1
+
+        remaining_ids = {r["id"] for r in store.get_rings_with_embedding()}
+        assert id_high in remaining_ids  # 保留 importance 高者
+        assert id_low not in remaining_ids  # 删除 importance 低者

@@ -51,7 +51,7 @@ sylva core list
 sylva checkpoint set sess_main "上次任務停在第四階段"
 sylva checkpoint get
 
-# 年輪整理（清理超期低權重交互）
+# 年輪整理（遺忘衰減 + 語義去重合併）
 sylva ring --ttl-days 30
 ```
 
@@ -116,6 +116,7 @@ tests/
 - [x] 階段三：`primitives.py` 三大原語
 - [x] 階段四：HTTP API / CLI / Hermes Hook 落地接入
 - [x] 階段五：FastEmbed 本地語義向量召回（雙軌第二軌）
+- [x] 階段六：ring 年輪整理（遺忘衰減 + 語義去重合併）
 
 ## License
 
