@@ -85,3 +85,21 @@ def test_lazy_embedding_persists(monkeypatch):
         # 召回触发懒索引后，全部补嵌
         assert store.get_rings_without_embedding() == []
         assert len(store.get_rings_with_embedding()) == 2
+
+
+def test_find_similar_pairs():
+    pytest.importorskip("numpy")
+    rings = [
+        {"id": 1, "embedding": search.pack([1.0, 0.0, 0.0])},
+        {"id": 2, "embedding": search.pack([1.0, 0.0, 0.0])},  # 与 1 相同
+        {"id": 3, "embedding": search.pack([0.0, 1.0, 0.0])},  # 与 1 正交
+    ]
+    pairs = search.find_similar_pairs(rings, threshold=0.9)
+    assert len(pairs) == 1
+    assert {pairs[0][0], pairs[0][1]} == {1, 2}
+    assert pairs[0][2] > 0.99
+
+
+def test_find_similar_pairs_trivial():
+    assert search.find_similar_pairs([]) == []
+    assert search.find_similar_pairs([{"id": 1, "embedding": b""}]) == []

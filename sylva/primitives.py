@@ -10,7 +10,7 @@ import time
 from typing import Any
 
 from sylva.core import SylvaStore, get_connection
-from sylva.search import hybrid_search
+from sylva.search import find_similar_pairs, hybrid_search, semantic_available
 
 
 class SylvaKernel:
@@ -97,27 +97,44 @@ class SylvaKernel:
             importance=importance,
         )
 
-    def ring_consolidate(self, ttl_days: float = 30.0) -> dict[str, int]:
-        """原语三：年轮整理 (Consolidate)。
-        清理过期低权重临时交互，保持年轮致密。
-        """
-        now = time.time()
-        ttl_seconds = ttl_days * 86400.0
-        cutoff_time = now - ttl_seconds
+    def ring_consolidate(
+        self,
+        ttl_days: float = 30.0,
+        similarity_threshold: float = 0.92,
+    ) -> dict[str, int]:
+        """原語三：年輪整理 (Consolidate)。遺忘衰減 + 語義去重合併，保持年輪緻密。"""
+        cutoff = time.time() - ttl_days * 86400.0
+        merged_count = 0
 
+        # 1. 遺忘衰減：清理過期低權重交互年輪
         with get_connection(self.store.db_path) as conn:
-            # 软清理/标记衰减超期的低重要度交互年轮
             cur = conn.execute(
-                """
-                DELETE FROM rings
-                WHERE ring_type = 'interaction'
-                  AND importance < 0.5
-                  AND created_at < ?;
-                """,
-                (cutoff_time,),
+                "DELETE FROM rings WHERE ring_type='interaction' "
+                "AND importance < 0.5 AND created_at < ?;",
+                (cutoff,),
             )
-            deleted_count = cur.rowcount
+            decayed_count = max(0, cur.rowcount)
 
-        return {
-            "decayed_rings": max(0, deleted_count),
-        }
+        # 2. 語義去重合併：相似年輪保留權重高/更新者
+        if semantic_available():
+            try:
+                rings = self.store.get_rings_with_embedding()
+                by_id = {r["id"]: r for r in rings}
+                merged: set[int] = set()
+                for id_a, id_b, _sim in sorted(
+                    find_similar_pairs(rings, threshold=similarity_threshold),
+                    key=lambda p: -p[2],
+                ):
+                    if id_a in merged or id_b in merged:
+                        continue
+                    a, b = by_id[id_a], by_id[id_b]
+                    loser = id_b if (a["importance"], a["created_at"]) >= (
+                        b["importance"], b["created_at"]) else id_a
+                    with get_connection(self.store.db_path) as conn:
+                        conn.execute("DELETE FROM rings WHERE id = ?;", (loser,))
+                    merged.add(loser)
+                    merged_count += 1
+            except (OSError, RuntimeError, ImportError, ValueError):
+                pass  # 語義去重失敗降級：只做遺忘衰減
+
+        return {"decayed_rings": decayed_count, "merged_rings": merged_count}
