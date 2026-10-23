@@ -7,7 +7,7 @@
 import json
 
 from sylva.core import SylvaStore, get_connection
-from sylva.llm import complete, llm_available
+from sylva.llm import SYLVA_PERSONA, complete, llm_available
 
 _EXTRACT_PROMPT = """從以下文本抽取實體關係三元組，僅輸出 JSON 陣列，每個元素為
 {{"subject": "...", "predicate": "...", "object": "..."}}。只抽取明確陳述的關係，
@@ -24,7 +24,7 @@ def extract_relations(text: str) -> list[dict]:
         return []
     raw = complete(
         [
-            {"role": "system", "content": "你是實體關係抽取器，只輸出 JSON 陣列。"},
+            {"role": "system", "content": SYLVA_PERSONA + "此刻你作為根系梳理者，從記憶碎片中辨識實體與關係，編織記憶森林的地下根系。只輸出 JSON 陣列。"},
             {"role": "user", "content": _EXTRACT_PROMPT.format(text=text)},
         ],
         temperature=0.2,

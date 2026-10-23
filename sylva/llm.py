@@ -1,33 +1,58 @@
 """Sylva LLM：可選 LLM 層（OpenAI 兼容），provider 無關，未配置優雅降級。
 
-環境變量：
-- SYLVA_LLM_BASE_URL  預設 https://api.deepseek.com/v1（大平台，可換任意 OpenAI 兼容地址）
-- SYLVA_LLM_API_KEY   API 密鑰
-- SYLVA_LLM_MODEL     預設 deepseek-chat
-- SYLVA_LLM_TIMEOUT   預設 15 秒
-
-未配置 API Key 時 llm_available() 返回 False，所有 LLM 功能（實體抽取、睡眠昇華）
-優雅降級為純本地行為，不阻塞核心記憶閉環。
+配置優先級：settings 表（看板功能設置頁寫入） > 環境變量（SYLVA_LLM_*，系統默認）。
+未配置 API Key 時 llm_available() 返回 False，所有 LLM 功能優雅降級純本地。
 """
 
 import json
 import os
+import sqlite3
 import urllib.request
+from pathlib import Path
 
 _DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 _DEFAULT_MODEL = "deepseek-chat"
 
+# Sylva 人格：木頭（Daey886）的記憶引擎，以樹木年輪層層致密沉澱為哲學。
+SYLVA_PERSONA = (
+    "你是 Sylva，木頭（Daey886）的記憶引擎，"
+    "以「樹木年輪（Tree Rings）層層致密沉澱」為哲學："
+    "每一次記憶的注入與整理，都像一圈年輪在時光中沉澱，讓記憶森林愈加深邃。"
+)
 
-def llm_available() -> bool:
-    """LLM 層是否可用（僅依賴是否配置 API Key）。"""
-    return bool(os.environ.get("SYLVA_LLM_API_KEY", "").strip())
+
+def _db_path() -> Path:
+    home = Path(os.environ.get("SYLVA_HOME", Path.home() / ".sylva"))
+    return home / "sylva.db"
+
+
+def _settings() -> dict[str, str]:
+    """從 settings 表讀取看板配置；表不存在或無配置返回空 dict。"""
+    db = _db_path()
+    if not db.exists():
+        return {}
+    try:
+        with sqlite3.connect(db) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT key, value FROM settings;").fetchall()
+        return {r["key"]: r["value"] for r in rows}
+    except sqlite3.OperationalError:
+        return {}
 
 
 def _config() -> tuple[str, str, str]:
-    base = os.environ.get("SYLVA_LLM_BASE_URL", _DEFAULT_BASE_URL).rstrip("/")
-    key = os.environ.get("SYLVA_LLM_API_KEY", "").strip()
-    model = os.environ.get("SYLVA_LLM_MODEL", _DEFAULT_MODEL)
-    return base, key, model
+    """返回 (base_url, api_key, model)；settings 表優先於環境變量。"""
+    s = _settings()
+    base = s.get("llm_base_url") or os.environ.get("SYLVA_LLM_BASE_URL") or _DEFAULT_BASE_URL
+    key = s.get("llm_api_key", "") or os.environ.get("SYLVA_LLM_API_KEY", "")
+    model = s.get("llm_model") or os.environ.get("SYLVA_LLM_MODEL") or _DEFAULT_MODEL
+    return base.rstrip("/"), key.strip(), model
+
+
+def llm_available() -> bool:
+    """LLM 層是否可用（settings 表或環境變量配置了 API Key）。"""
+    _, key, _ = _config()
+    return bool(key)
 
 
 def complete(
@@ -39,9 +64,9 @@ def complete(
 
     用 stdlib urllib 實現，零第三方依賴，守住微內核紅線。
     """
-    if not llm_available():
-        return None
     base, key, model = _config()
+    if not key:
+        return None
     payload = json.dumps(
         {
             "model": model,

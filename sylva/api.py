@@ -28,6 +28,7 @@ from starlette.responses import JSONResponse
 from sylva.consolidate import sleep_consolidate
 from sylva.core import SylvaStore
 from sylva.dashboard import mount_dashboard
+from sylva.llm import llm_available
 from sylva.primitives import SylvaKernel
 
 RING_TYPES = ("fact", "rule", "decision", "interaction")
@@ -101,6 +102,21 @@ class CheckpointRequest(BaseModel):
     metadata: str = "{}"
 
 
+class SettingsRequest(BaseModel):
+    llm_base_url: str | None = None
+    llm_model: str | None = None
+    api_key: str | None = None
+
+
+def _mask_key(key: str) -> str:
+    """API Key 脫敏：只暴露前 4 後 4 位。"""
+    if not key:
+        return ""
+    if len(key) <= 8:
+        return "*" * len(key)
+    return f"{key[:4]}{'*' * 12}{key[-4:]}"
+
+
 def create_app(db_path: Path | None = None) -> FastAPI:
     """构造一个绑定到指定数据库的 Sylva API 实例。"""
     kernel = SylvaKernel(SylvaStore(db_path) if db_path else None)
@@ -141,6 +157,31 @@ def create_app(db_path: Path | None = None) -> FastAPI:
     def sleep_consolidation() -> dict:
         """夜間睡眠昇華：掃描低頻碎片，LLM 歸納為語義記憶並歸檔。"""
         return sleep_consolidate(kernel.store)
+
+    @app.get("/settings")
+    def get_settings() -> dict:
+        """看板功能設置：返回 LLM 配置（API Key 脫敏）。"""
+        store = kernel.store
+        key = store.get_setting("llm_api_key", "")
+        return {
+            "llm_base_url": store.get_setting("llm_base_url", ""),
+            "llm_model": store.get_setting("llm_model", ""),
+            "api_key_masked": _mask_key(key),
+            "has_key": bool(key),
+            "llm_available": llm_available(),
+        }
+
+    @app.post("/settings")
+    def update_settings(req: SettingsRequest) -> dict:
+        """看板功能設置：更新 LLM 配置（api_key 留空則保持原值）。"""
+        store = kernel.store
+        if req.llm_base_url is not None:
+            store.set_setting("llm_base_url", req.llm_base_url.strip())
+        if req.llm_model is not None:
+            store.set_setting("llm_model", req.llm_model.strip())
+        if req.api_key:
+            store.set_setting("llm_api_key", req.api_key.strip())
+        return {"ok": True, "llm_available": llm_available()}
 
     @app.post("/core")
     def set_core(req: CoreRequest) -> dict:
