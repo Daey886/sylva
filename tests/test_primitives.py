@@ -84,9 +84,11 @@ def test_kernel_ingest_and_consolidation():
 
 
 def test_ring_consolidate_semantic_merge(monkeypatch):
-    from sylva import search
+    from sylva import primitives, search
 
-    monkeypatch.setattr(search, "semantic_available", lambda: True)
+    # ring_consolidate 在 primitives 模組內，須 mock primitives 的綁定引用
+    # （from sylva.search import semantic_available 是獨立引用，mock search 模組無效）
+    monkeypatch.setattr(primitives, "semantic_available", lambda: True)
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test_semantic.db"
         store = SylvaStore(db_path)
@@ -108,7 +110,7 @@ def test_ring_consolidate_semantic_merge(monkeypatch):
 
         # mock 相似对查找，隔离真实模型
         monkeypatch.setattr(
-            search,
+            primitives,
             "find_similar_pairs",
             lambda rings, threshold=0.92: [(id_high, id_low, 0.95)],
         )
