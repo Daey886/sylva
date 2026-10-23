@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+from sylva.consolidate import sleep_consolidate
 from sylva.core import SylvaStore
 from sylva.dashboard import mount_dashboard
 from sylva.primitives import SylvaKernel
@@ -135,6 +136,11 @@ def create_app(db_path: Path | None = None) -> FastAPI:
     @app.post("/ring")
     def ring(req: RingRequest) -> dict:
         return kernel.ring_consolidate(ttl_days=req.ttl_days)
+
+    @app.post("/sleep")
+    def sleep_consolidation() -> dict:
+        """夜間睡眠昇華：掃描低頻碎片，LLM 歸納為語義記憶並歸檔。"""
+        return sleep_consolidate(kernel.store)
 
     @app.post("/core")
     def set_core(req: CoreRequest) -> dict:

@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS rings (
     importance REAL DEFAULT 1.0,
     created_at REAL NOT NULL,
     decayed_at REAL,
+    consolidated INTEGER DEFAULT 0, -- 0=活躍 1=已昇華歸檔
     embedding BLOB
 );
 
@@ -86,6 +87,7 @@ def init_database(db_path: Path | None = None) -> Path:
         conn.executescript(SCHEMA_SQL)
         _migrate_fts(conn)
         _migrate_embedding(conn)
+        _migrate_consolidated(conn)
     return target
 
 
@@ -113,6 +115,13 @@ def _migrate_embedding(conn: sqlite3.Connection) -> None:
     cols = [row["name"] for row in conn.execute("PRAGMA table_info(rings);")]
     if "embedding" not in cols:
         conn.execute("ALTER TABLE rings ADD COLUMN embedding BLOB;")
+
+
+def _migrate_consolidated(conn: sqlite3.Connection) -> None:
+    """舊庫 rings 表補 consolidated 列（睡眠昇華歸檔新增）。"""
+    cols = [row["name"] for row in conn.execute("PRAGMA table_info(rings);")]
+    if "consolidated" not in cols:
+        conn.execute("ALTER TABLE rings ADD COLUMN consolidated INTEGER DEFAULT 0;")
 
 
 @contextmanager
@@ -322,6 +331,38 @@ class SylvaStore:
         with get_connection(self.db_path) as conn:
             cur = conn.execute(sql, (subject, safe_depth))
             return [dict(row) for row in cur.fetchall()]
+
+    def get_low_frequency_rings(
+        self,
+        max_importance: float = 0.5,
+        limit: int = 50,
+    ) -> list[dict]:
+        """掃描低價值且未歸檔的情景碎片（供夜間睡眠昇華）。"""
+        safe_limit = max(1, min(limit, 200))
+        with get_connection(self.db_path) as conn:
+            cur = conn.execute(
+                "SELECT id, ring_type, content, importance, created_at "
+                "FROM rings "
+                "WHERE ring_type = 'interaction' "
+                "AND consolidated = 0 "
+                "AND importance < ? "
+                "AND decayed_at IS NULL "
+                "ORDER BY created_at ASC LIMIT ?;",
+                (max_importance, safe_limit),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def mark_consolidated(self, ring_ids: list[int]) -> int:
+        """將指定年輪標記為已昇華歸檔，返回標記數。"""
+        if not ring_ids:
+            return 0
+        placeholders = ",".join("?" for _ in ring_ids)
+        with get_connection(self.db_path) as conn:
+            cur = conn.execute(
+                f"UPDATE rings SET consolidated = 1 WHERE id IN ({placeholders});",
+                tuple(ring_ids),
+            )
+            return max(0, cur.rowcount)
 
     def stats(self) -> dict:
         """看板統計：各表計數與資料庫大小。"""
