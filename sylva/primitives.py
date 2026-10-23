@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 from sylva.core import SylvaStore, get_connection
+from sylva.search import hybrid_search
 
 
 class SylvaKernel:
@@ -51,10 +52,10 @@ class SylvaKernel:
         if cp_context:
             blocks.append(f"[Checkpoint]\n{cp_context}")
 
-        # 3. Rings Recall (年轮检索)
+        # 3. Rings Recall (年輪檢索)
         matches: list[dict] = []
         if query and query.strip():
-            matches = self.store.search_fts(query, limit=recall_limit)
+            matches = hybrid_search(self.store, query, limit=recall_limit)
             if matches:
                 ring_lines = ["[Relevant Tree Rings]"]
                 for m in matches:

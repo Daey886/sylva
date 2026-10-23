@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS rings (
     hash TEXT UNIQUE NOT NULL, -- SHA256 去重防重复投递
     importance REAL DEFAULT 1.0,
     created_at REAL NOT NULL,
-    decayed_at REAL
+    decayed_at REAL,
+    embedding BLOB
 );
 
 -- 4. FTS5 全文索引（年轮全文搜索）
@@ -72,6 +73,7 @@ def init_database(db_path: Path | None = None) -> Path:
     with get_connection(target) as conn:
         conn.executescript(SCHEMA_SQL)
         _migrate_fts(conn)
+        _migrate_embedding(conn)
     return target
 
 
@@ -92,6 +94,13 @@ def _migrate_fts(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT INTO rings_fts(rowid, content) SELECT id, content FROM rings;"
         )
+
+
+def _migrate_embedding(conn: sqlite3.Connection) -> None:
+    """舊庫 rings 表補 embedding 列（階段五語義召回新增）。"""
+    cols = [row["name"] for row in conn.execute("PRAGMA table_info(rings);")]
+    if "embedding" not in cols:
+        conn.execute("ALTER TABLE rings ADD COLUMN embedding BLOB;")
 
 
 @contextmanager
@@ -219,4 +228,29 @@ class SylvaStore:
         """
         with get_connection(self.db_path) as conn:
             cur = conn.execute(sql, (fts_query, safe_limit))
+            return [dict(row) for row in cur.fetchall()]
+
+    def set_embedding(self, ring_id: int, blob: bytes) -> None:
+        """寫回年輪的語義向量 BLOB。"""
+        with get_connection(self.db_path) as conn:
+            conn.execute(
+                "UPDATE rings SET embedding = ? WHERE id = ?;",
+                (blob, ring_id),
+            )
+
+    def get_rings_without_embedding(self) -> list[dict]:
+        """返回尚未嵌入向量的年輪（懶索引用）。"""
+        with get_connection(self.db_path) as conn:
+            cur = conn.execute(
+                "SELECT id, content FROM rings WHERE embedding IS NULL;"
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_rings_with_embedding(self) -> list[dict]:
+        """返回已嵌入向量的年輪（語義召回用）。"""
+        with get_connection(self.db_path) as conn:
+            cur = conn.execute(
+                "SELECT id, ring_type, content, importance, created_at, embedding "
+                "FROM rings WHERE embedding IS NOT NULL;"
+            )
             return [dict(row) for row in cur.fetchall()]
