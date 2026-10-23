@@ -101,3 +101,18 @@ def test_chinese_fts_substring():
 
         # 无关搜索
         assert store.search_fts("Postgres") == []
+
+
+def test_long_query_keyword_recall():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "test_sylva.db"
+        store = SylvaStore(db_path)
+
+        content = "用户偏好使用 SQLite WAL 模式，拒绝重型向量数据库"
+        h = hashlib.sha256(content.encode()).hexdigest()
+        store.add_ring("fact", content, h)
+
+        # 整句 query 经 3-gram 窗口切分后仍能召回含关键词的 ring
+        results = store.search_fts("帮我回忆一下数据库方案")
+        assert len(results) == 1
+        assert "SQLite" in results[0]["content"]

@@ -191,14 +191,23 @@ class SylvaStore:
         if not query or not query.strip():
             return []
         safe_limit = max(1, min(limit, 50))
-        # trigram 分词器最小匹配长度为 3 字符：拆词后过滤短 token
-        raw_tokens = re.findall(r"\w+", query, flags=re.UNICODE)
-        tokens = [t for t in raw_tokens if len(t) >= 3]
-        if not tokens:
+        # trigram 分词器最小匹配长度为 3 字符。
+        # 短 token（<=6 字）保留做精准 phrase 匹配；长 token 切 3-gram 窗口，
+        # 使整句 query 中的关键词子串（如「数据库」）也能召回。
+        grams: list[str] = []
+        for tok in re.findall(r"\w+", query, flags=re.UNICODE):
+            if len(tok) < 3:
+                continue
+            if len(tok) <= 6:
+                grams.append(tok)
+            else:
+                grams.extend(tok[i : i + 3] for i in range(len(tok) - 2))
+        grams = list(dict.fromkeys(grams))  # 保序去重
+        if not grams:
             return []
 
-        # 构造 FTS5 查询：多词间使用 OR 提升召回容错（token 仅含 \w，无需转义）
-        fts_query = " OR ".join(f'"{token}"' for token in tokens)
+        # 构造 FTS5 查询：多 gram 间使用 OR 提升召回容错（gram 仅含 \w，无需转义）
+        fts_query = " OR ".join(f'"{g}"' for g in grams)
 
         sql = """
         SELECT r.id, r.ring_type, r.content, r.importance, r.created_at, bm25(rings_fts) as rank
