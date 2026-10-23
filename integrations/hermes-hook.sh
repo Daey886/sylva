@@ -24,6 +24,7 @@ stdout : {"context": "..."} 或 {} （無內容時靜默）
   - 召回內容包進「數據非指令」邊界框架，防召回側注入
   - --selftest 提供一條能「吵起來」的診斷路徑
 """
+import base64
 import json
 import os
 import sys
@@ -39,6 +40,34 @@ FRAME = (
 )
 
 
+
+def _auth_password() -> str:
+    """從環境變量或 /etc/sylva/auth.env 讀取 Sylva 訪問密碼。"""
+    pw = os.environ.get("SYLVA_AUTH_PASSWORD", "")
+    if pw:
+        return pw
+    try:
+        with open("/etc/sylva/auth.env") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("SYLVA_AUTH_PASSWORD="):
+                    return line.split("=", 1)[1]
+    except OSError:
+        pass
+    return ""
+
+
+_AUTH_PW = _auth_password()
+
+
+def _headers() -> dict:
+    headers = {"Content-Type": "application/json"}
+    if _AUTH_PW:
+        token = base64.b64encode(f"sylva:{_AUTH_PW}".encode()).decode()
+        headers["Authorization"] = f"Basic {token}"
+    return headers
+
+
 def _post_inject(query, session_id, max_chars=4000, recall_limit=5):
     body = json.dumps(
         {
@@ -50,7 +79,7 @@ def _post_inject(query, session_id, max_chars=4000, recall_limit=5):
         ensure_ascii=False,
     ).encode()
     req = urllib.request.Request(
-        f"{URL}/inject", data=body, headers={"Content-Type": "application/json"}
+        f"{URL}/inject", data=body, headers=_headers()
     )
     with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
         return (json.load(resp).get("context") or "").strip()
