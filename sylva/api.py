@@ -191,9 +191,9 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         return {"ok": True, "llm_available": llm_available()}
 
     @app.get("/relations")
-    def list_relations() -> dict:
-        """看板圖譜：返回全部三元組（節點+邊）。"""
-        return {"relations": kernel.store.all_relations()}
+    def list_relations(include_invalid: bool = False) -> dict:
+        """看板圖譜：返回三元組（節點+邊）。include_invalid=True 時含已失效關係。"""
+        return {"relations": kernel.store.all_relations(include_invalid=include_invalid)}
 
     @app.post("/core")
     def set_core(req: CoreRequest) -> dict:
