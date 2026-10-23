@@ -5,21 +5,27 @@
 短衰減泳道），供近期召回參考；ring 維護線的遺忘衰減會自然淘汰過期交互。
 持久事實 / 規則 / 決策由用戶顯式寫入（fact/rule/decision），寫線不自動提煉。
 
+新增：若 assistant 回覆有實質結論（≥30 字），同步把「Q + A 摘要」寫入，
+讓「上次問過什麼、答了什麼」都能被召回（同樣 30 天遺忘，非永久記憶）。
+
 stdin  : Hermes post_llm_call payload (JSON)
 stdout : {} （寫線只做副作用寫入，不改寫 context）
 
 配置（環境變量，均有默認值）：
-  SYLVA_URL       服務地址，默認 http://127.0.0.1:8420
-  SYLVA_TIMEOUT   單次 HTTP 超時秒數，默認 2.0
-  SYLVA_MIN_MSG   用戶消息短於 N 字不寫，默認 8
+  SYLVA_URL             服務地址，默認 http://127.0.0.1:8420
+  SYLVA_TIMEOUT         單次 HTTP 超時秒數，默認 2.0
+  SYLVA_MIN_MSG         用戶消息短於 N 字不寫，默認 8
+  SYLVA_ASSISTANT_MIN   回覆短於 N 字不併入 Q&A，默認 30
+  SYLVA_ASSISTANT_MAX   Q&A 中回覆摘要上限字符，默認 400
 
 設計原則（繼承 aidumem 寫線教訓）：
   - 短消息不寫（「嗯」「好的」無記憶價值）
   - 寫入失敗靜默降級，絕不影響 LLM（讀線才是關鍵路徑）
-  - 只寫 user_message，不做 LLM 提煉（Sylva 微內核哲學：確定性算法）
+  - 只寫 user_message + assistant 回覆摘要，不做 LLM 提煉（Sylva 微內核哲學：確定性算法）
 """
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -27,8 +33,25 @@ import urllib.request
 URL = os.environ.get("SYLVA_URL", "http://127.0.0.1:8420")
 TIMEOUT = float(os.environ.get("SYLVA_TIMEOUT", "2.0"))
 MIN_MSG = int(os.environ.get("SYLVA_MIN_MSG", "8"))
+ASSISTANT_MIN = int(os.environ.get("SYLVA_ASSISTANT_MIN", "30"))
+ASSISTANT_MAX = int(os.environ.get("SYLVA_ASSISTANT_MAX", "400"))
 RING_TYPE = "interaction"
 IMPORTANCE = 0.3  # 低於 0.5，ring 遺忘衰減（默認 30 天）會自然淘汰
+
+_MD_RE = re.compile(r"[*_`>#|]+")
+
+
+def _clean(text: str) -> str:
+    """去掉 Markdown 標記，保留可讀純文本。"""
+    return _MD_RE.sub("", text).strip()
+
+
+def _summarize(text: str) -> str:
+    """確定性摘要：去 Markdown + 截斷到上限。"""
+    text = _clean(text)
+    if len(text) <= ASSISTANT_MAX:
+        return text
+    return text[: ASSISTANT_MAX - 3] + "…"
 
 
 def _post_ingest(content):
@@ -76,8 +99,19 @@ def main():
         print("{}")
         return 0
 
+    # assistant 回覆有實質結論時，併入 Q&A 對一起寫入
+    assistant_resp = extra.get("assistant_response") or ""
+    if not isinstance(assistant_resp, str):
+        assistant_resp = ""
+    assistant_resp = assistant_resp.strip()
+
+    if len(assistant_resp) >= ASSISTANT_MIN:
+        content = f"{msg}\n→ {_summarize(assistant_resp)}"
+    else:
+        content = msg
+
     try:
-        _post_ingest(msg)
+        _post_ingest(content)
     except Exception:  # noqa: BLE001 — 寫線失敗靜默，不影響 LLM
         pass
 
