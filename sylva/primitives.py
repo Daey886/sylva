@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 from sylva.core import SylvaStore, get_connection
+from sylva.relations import ingest_relations, relation_recall
 from sylva.search import find_similar_pairs, hybrid_search, semantic_available
 
 
@@ -62,6 +63,13 @@ class SylvaKernel:
                     ring_lines.append(f"- ({m['ring_type']}) {m['content']}")
                 blocks.append("\n".join(ring_lines))
 
+        # 3b. Relations Recall (實體關係多跳召回)
+        rel_lines: list[str] = []
+        if query and query.strip():
+            rel_lines = relation_recall(self.store, query)
+            if rel_lines:
+                blocks.append("[Entity Relations]\n" + "\n".join(f"- {r}" for r in rel_lines))
+
         full_context = "\n\n".join(blocks).strip()
 
         # 硬性截断约束
@@ -74,6 +82,7 @@ class SylvaKernel:
             "has_core": bool(cores),
             "has_checkpoint": bool(cp_context),
             "recalled_count": len(matches),
+            "relation_count": len(rel_lines),
         }
 
     def ingest(
@@ -90,12 +99,16 @@ class SylvaKernel:
             return False
 
         ring_hash = hashlib.sha256(clean_content.encode("utf-8")).hexdigest()
-        return self.store.add_ring(
+        written = self.store.add_ring(
             ring_type=ring_type,
             content=clean_content,
             ring_hash=ring_hash,
             importance=importance,
         )
+        # 寫入成功後，可選抽取實體關係三元組（未配置 LLM 時為空操作，零開銷）
+        if written and ring_type != "interaction":
+            ingest_relations(self.store, clean_content)
+        return written
 
     def ring_consolidate(
         self,

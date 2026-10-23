@@ -63,6 +63,18 @@ CREATE TRIGGER IF NOT EXISTS rings_au AFTER UPDATE ON rings BEGIN
     INSERT INTO rings_fts(rings_fts, rowid, content) VALUES('delete', old.id, old.content);
     INSERT INTO rings_fts(rowid, content) VALUES (new.id, new.content);
 END;
+
+-- 6. Entity Relations (实体关系图谱)：三元组表，支持多跳推理
+CREATE TABLE IF NOT EXISTS entity_relations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    object TEXT NOT NULL,
+    confidence REAL DEFAULT 1.0,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rel_subject ON entity_relations(subject);
+CREATE INDEX IF NOT EXISTS idx_rel_object ON entity_relations(object);
 """
 
 
@@ -267,15 +279,61 @@ class SylvaStore:
             )
             return [dict(row) for row in cur.fetchall()]
 
+    def add_relation(
+        self,
+        subject: str,
+        predicate: str,
+        object_: str,
+        confidence: float = 1.0,
+    ) -> bool:
+        """寫入實體關係三元組。同三元組冪等去重（返回 True 寫入，False 已存在）。"""
+        now = time.time()
+        with get_connection(self.db_path) as conn:
+            cur = conn.execute(
+                "SELECT id FROM entity_relations "
+                "WHERE subject = ? AND predicate = ? AND object = ?;",
+                (subject, predicate, object_),
+            )
+            if cur.fetchone():
+                return False
+            conn.execute(
+                "INSERT INTO entity_relations "
+                "(subject, predicate, object, confidence, created_at) "
+                "VALUES (?, ?, ?, ?, ?);",
+                (subject, predicate, object_, confidence, now),
+            )
+            return True
+
+    def query_relations(self, subject: str, max_depth: int = 2) -> list[dict]:
+        """遞迴 CTE 查詢實體關係，返回最多 max_depth 跳的 (subject, predicate, object, depth)。"""
+        safe_depth = max(1, min(max_depth, 3))
+        sql = """
+        WITH RECURSIVE hops(subject, predicate, object, depth) AS (
+            SELECT subject, predicate, object, 1
+            FROM entity_relations WHERE subject = ?
+            UNION ALL
+            SELECT er.subject, er.predicate, er.object, hops.depth + 1
+            FROM entity_relations er
+            JOIN hops ON er.subject = hops.object
+            WHERE hops.depth < ?
+        )
+        SELECT subject, predicate, object, depth FROM hops;
+        """
+        with get_connection(self.db_path) as conn:
+            cur = conn.execute(sql, (subject, safe_depth))
+            return [dict(row) for row in cur.fetchall()]
+
     def stats(self) -> dict:
         """看板統計：各表計數與資料庫大小。"""
         with get_connection(self.db_path) as conn:
             rings = conn.execute("SELECT COUNT(*) FROM rings;").fetchone()[0]
             cores = conn.execute("SELECT COUNT(*) FROM core_memory;").fetchone()[0]
             checkpoints = conn.execute("SELECT COUNT(*) FROM checkpoints;").fetchone()[0]
+            relations = conn.execute("SELECT COUNT(*) FROM entity_relations;").fetchone()[0]
         return {
             "rings": rings,
             "cores": cores,
             "checkpoints": checkpoints,
+            "relations": relations,
             "db_bytes": self.db_path.stat().st_size,
         }
