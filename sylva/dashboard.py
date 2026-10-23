@@ -267,36 +267,48 @@ document.querySelectorAll('.tab').forEach(function(b){
     });
     var ns=Object.keys(nodes);
     if(!ns.length)return '<div class="empty">'+t('empty_relations')+'</div>';
-    var W=760,H=520,cx=W/2,cy=H/2;
-    var R=Math.min(W,H)/2-70;
-    ns.forEach(function(n,i){var a=2*Math.PI*i/ns.length-Math.PI/2;nodes[n].x=cx+R*Math.cos(a);nodes[n].y=cy+R*Math.sin(a);});
-    var disp={};ns.forEach(function(n){disp[n]={x:0,y:0};});
-    var temp=1.0;
-    for(var it=0;it<500;it++){
-      ns.forEach(function(n){disp[n].x=0;disp[n].y=0;});
+    var cell=90;
+    var span=Math.max(760,Math.sqrt(ns.length)*cell+140);
+    var W=span,H=span,cx=W/2,cy=H/2;
+    ns.forEach(function(n,i){var a=2*Math.PI*i/ns.length-Math.PI/2;nodes[n].x=cx+(W/2-60)*Math.cos(a);nodes[n].y=cy+(H/2-60)*Math.sin(a);});
+    ns.forEach(function(n){nodes[n].r=5+Math.min(nodes[n].d,8)*1.6;});
+    var pad=16;
+    var alpha=1,alphaDecay=0.985,alphaMin=0.01;
+    var linkDist=130,repulsion=40000,centerStr=0.004;
+    for(var it=0;it<2500&&alpha>alphaMin;it++){
+      ns.forEach(function(n){nodes[n].vx=0;nodes[n].vy=0;});
       for(var i=0;i<ns.length;i++)for(var j=i+1;j<ns.length;j++){
-        var a=nodes[ns[i]],b=nodes[ns[j]],dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy,d=Math.sqrt(d2)||1,f=1400/d2;
-        disp[ns[i]].x+=dx/d*f;disp[ns[i]].y+=dy/d*f;
-        disp[ns[j]].x-=dx/d*f;disp[ns[j]].y-=dy/d*f;
+        var a=nodes[ns[i]],b=nodes[ns[j]],dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy;
+        if(d2<1)d2=1;
+        var d=Math.sqrt(d2),f=repulsion/d2;
+        a.vx+=dx/d*f;a.vy+=dy/d*f;b.vx-=dx/d*f;b.vy-=dy/d*f;
+      }
+      for(var i=0;i<ns.length;i++)for(var j=i+1;j<ns.length;j++){
+        var a=nodes[ns[i]],b=nodes[ns[j]],dx=a.x-b.x,dy=a.y-b.y,d=Math.sqrt(dx*dx+dy*dy)||0.1;
+        var minD=a.r+b.r+pad;
+        if(d<minD){var p=(minD-d)*0.7,ux=dx/d,uy=dy/d;a.vx+=ux*p;a.vy+=uy*p;b.vx-=ux*p;b.vy-=uy*p;}
       }
       edges.forEach(function(e){
-        var a=nodes[e.s],b=nodes[e.o],dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1,f=(d-110)*0.05;
-        disp[e.s].x+=dx/d*f;disp[e.s].y+=dy/d*f;
-        disp[e.o].x-=dx/d*f;disp[e.o].y-=dy/d*f;
+        var a=nodes[e.s],b=nodes[e.o],dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||0.1;
+        var f=(d-linkDist)*0.04;
+        a.vx+=dx/d*f;a.vy+=dy/d*f;b.vx-=dx/d*f;b.vy-=dy/d*f;
       });
       ns.forEach(function(n){
-        disp[n].x+=(cx-nodes[n].x)*0.015;
-        disp[n].y+=(cy-nodes[n].y)*0.015;
-        nodes[n].x+=disp[n].x*temp;nodes[n].y+=disp[n].y*temp;
+        nodes[n].vx+=(cx-nodes[n].x)*centerStr;
+        nodes[n].vy+=(cy-nodes[n].y)*centerStr;
       });
-      temp*=0.99;
+      ns.forEach(function(n){nodes[n].x+=nodes[n].vx*alpha;nodes[n].y+=nodes[n].vy*alpha;});
+      alpha*=alphaDecay;
     }
+    var minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
     ns.forEach(function(n){
-      nodes[n].x=Math.max(30,Math.min(W-30,nodes[n].x));
-      nodes[n].y=Math.max(30,Math.min(H-30,nodes[n].y));
+      var a=nodes[n];
+      minX=Math.min(minX,a.x-a.r-34);maxX=Math.max(maxX,a.x+a.r+34);
+      minY=Math.min(minY,a.y-a.r-34);maxY=Math.max(maxY,a.y+a.r+34);
     });
+    var vw=Math.max(maxX-minX,200),vh=Math.max(maxY-minY,200);
     function sl(s,m){return s.length>m?s.slice(0,m)+'…':s;}
-    var svg='<svg id="gsvg" width="100%" height="520" viewBox="0 0 '+W+' '+H+'" style="display:block;cursor:grab;touch-action:none">';
+    var svg='<svg id="gsvg" width="100%" height="520" viewBox="'+minX+' '+minY+' '+vw+' '+vh+'" style="display:block;cursor:grab;touch-action:none">';
     svg+='<g id="gg">';
     edges.forEach(function(e){
       var a=nodes[e.s],b=nodes[e.o];
@@ -307,7 +319,7 @@ document.querySelectorAll('.tab').forEach(function(b){
       svg+='<text x="'+((a.x+b.x)/2)+'" y="'+((a.y+b.y)/2-4)+'" fill="'+fl+'" font-size="9" text-anchor="middle">'+esc(sl(e.p,10))+'<title>'+esc(e.p)+(e.inv?'（'+t('history_tag')+'）':'')+'</title></text>';
     });
     ns.forEach(function(n){
-      var r=4+Math.min(nodes[n].d,8)*1.8;
+      var r=nodes[n].r;
       svg+='<circle cx="'+nodes[n].x+'" cy="'+nodes[n].y+'" r="'+r+'" fill="#6fd49a"/>';
       svg+='<text x="'+nodes[n].x+'" y="'+(nodes[n].y+r+13)+'" fill="#dce6e0" font-size="11" text-anchor="middle">'+esc(sl(n,14))+'<title>'+esc(n)+'</title></text>';
     });
