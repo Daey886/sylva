@@ -165,14 +165,17 @@ class SylvaStore:
                 return False
 
     def search_fts(self, query: str, limit: int = 5) -> list[dict]:
-        """基于 SQLite FTS5 的快速毫秒级全文精确检索。"""
+        """基于 SQLite FTS5 的快速毫秒级全文精确检索。支持多词 OR 匹配。"""
         if not query or not query.strip():
             return []
         safe_limit = max(1, min(limit, 50))
-        # 简单转义处理特殊字符
-        clean_query = "".join([c for c in query if c.isalnum() or c.isspace() or c in "_-"])
-        if not clean_query.strip():
+        # 提取有效检索词
+        raw_tokens = "".join([c if c.isalnum() or c in "_-" else " " for c in query]).split()
+        if not raw_tokens:
             return []
+
+        # 构造 FTS5 查询：多词间使用 OR 提升召回容错
+        fts_query = " OR ".join(f'"{token}"' for token in raw_tokens)
 
         sql = """
         SELECT r.id, r.ring_type, r.content, r.importance, r.created_at, bm25(rings_fts) as rank
@@ -183,5 +186,5 @@ class SylvaStore:
         LIMIT ?;
         """
         with get_connection(self.db_path) as conn:
-            cur = conn.execute(sql, (clean_query, safe_limit))
+            cur = conn.execute(sql, (fts_query, safe_limit))
             return [dict(row) for row in cur.fetchall()]
