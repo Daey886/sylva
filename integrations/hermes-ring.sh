@@ -12,6 +12,7 @@ stdout : {} （維護線只做副作用，不改寫 context）
   SYLVA_RING_TIMEOUT 單次 HTTP 超時秒數，默認 10.0（語義去重需載入模型）
   SYLVA_RING_TTL     遺忘衰減天數，默認 30.0
 """
+import base64
 import json
 import os
 import sys
@@ -23,10 +24,38 @@ TIMEOUT = float(os.environ.get("SYLVA_RING_TIMEOUT", "10.0"))
 TTL_DAYS = float(os.environ.get("SYLVA_RING_TTL", "30.0"))
 
 
+
+def _auth_password() -> str:
+    """從環境變量或 /etc/sylva/auth.env 讀取 Sylva 訪問密碼。"""
+    pw = os.environ.get("SYLVA_AUTH_PASSWORD", "")
+    if pw:
+        return pw
+    try:
+        with open("/etc/sylva/auth.env") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("SYLVA_AUTH_PASSWORD="):
+                    return line.split("=", 1)[1]
+    except OSError:
+        pass
+    return ""
+
+
+_AUTH_PW = _auth_password()
+
+
+def _headers() -> dict:
+    headers = {"Content-Type": "application/json"}
+    if _AUTH_PW:
+        token = base64.b64encode(f"sylva:{_AUTH_PW}".encode()).decode()
+        headers["Authorization"] = f"Basic {token}"
+    return headers
+
+
 def _post_ring():
     body = json.dumps({"ttl_days": TTL_DAYS}).encode()
     req = urllib.request.Request(
-        f"{URL}/ring", data=body, headers={"Content-Type": "application/json"}
+        f"{URL}/ring", data=body, headers=_headers()
     )
     with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
         return json.load(resp)
