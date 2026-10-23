@@ -79,3 +79,25 @@ def test_rings_dedup_and_fts():
 
         # 无关搜索
         assert len(store.search_fts("Postgres")) == 0
+
+
+def test_chinese_fts_substring():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "test_sylva.db"
+        store = SylvaStore(db_path)
+
+        content = "用户拒绝使用重型向量数据库，坚持单文件 SQLite 方案"
+        h = hashlib.sha256(content.encode()).hexdigest()
+        store.add_ring("fact", content, h)
+
+        # 中文子串召回（trigram 分词器，修复前返回空）
+        assert len(store.search_fts("向量数据库")) == 1
+        assert len(store.search_fts("数据库")) == 1
+        assert len(store.search_fts("SQLite")) == 1
+
+        # 短 query（<3 字符）静默返回空，不抛异常
+        assert store.search_fts("向量") == []
+        assert store.search_fts("数据") == []
+
+        # 无关搜索
+        assert store.search_fts("Postgres") == []
