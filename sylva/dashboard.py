@@ -650,6 +650,198 @@ body {
 .empty-placeholder {
   text-align: center; padding: 40px; color: var(--text-dim); font-size: 13px;
 }
+
+/* Responsive & Mobile Adaptation */
+.sidebar-toggle-btn {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  width: 32px; height: 32px;
+  padding: 6px;
+  cursor: pointer;
+  flex-direction: column;
+  justify-content: space-around;
+  align-items: center;
+  flex-shrink: 0;
+}
+.sidebar-toggle-btn span {
+  display: block; width: 16px; height: 2px;
+  background: var(--text-main);
+  border-radius: 1px;
+  transition: all 0.2s ease;
+}
+.sidebar-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 998;
+}
+.insp-close-btn {
+  display: none;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  width: 26px; height: 26px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+@media (max-width: 900px) {
+  body {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #app {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+  }
+  
+  /* Sidebar Drawer on Mobile */
+  .sidebar-toggle-btn {
+    display: flex;
+  }
+  .sidebar {
+    position: fixed;
+    top: 0; bottom: 0; left: 0;
+    width: 270px;
+    max-width: 80vw;
+    z-index: 999;
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 20px 0 50px rgba(0,0,0,0.8);
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  .sidebar-overlay.active {
+    display: block;
+  }
+
+  /* Topbar */
+  .topbar {
+    padding: 0 12px;
+    height: 52px;
+    gap: 8px;
+  }
+  .topbar-left {
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+  }
+  .breadcrumbs {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .search-box {
+    display: none; /* 移动端精简顶部搜索，留给导航与语言 */
+  }
+  .topbar-right {
+    gap: 6px;
+  }
+  .lang-select {
+    padding: 4px 6px;
+    font-size: 11px;
+  }
+
+  /* Split View & Mobile Bottom Sheet / Modal for Inspector */
+  .split-view {
+    flex-direction: column;
+    position: relative;
+    height: 100%;
+  }
+  .split-main {
+    padding: 12px;
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .cards-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  
+  .insp-close-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .split-side {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    width: 100%;
+    max-height: 85vh;
+    max-height: 85dvh;
+    border-left: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 16px 16px 0 0;
+    background: #0d1017;
+    box-shadow: 0 -10px 40px rgba(0,0,0,0.85);
+    z-index: 900;
+    transform: translateY(100%);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    padding: 20px 16px 30px;
+  }
+  .split-side.mobile-open {
+    transform: translateY(0);
+  }
+
+  /* Controls & Chips */
+  .controls-bar {
+    margin-bottom: 12px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+  .chips-group {
+    flex-wrap: nowrap;
+  }
+  .filter-chip {
+    white-space: nowrap;
+    font-size: 11px;
+    padding: 5px 10px;
+  }
+
+  /* Timeline */
+  .timeline-cluster {
+    margin-bottom: 16px;
+  }
+  .timeline-item {
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .timeline-content-card {
+    padding: 10px 12px;
+  }
+
+  /* Auth Gate Card */
+  .gate-card {
+    width: 90vw;
+    max-width: 360px;
+    padding: 24px;
+  }
+
+  /* Graph View HUD */
+  .graph-hud {
+    top: 10px; left: 10px; right: 10px;
+    padding: 10px 12px;
+  }
+  .graph-controls {
+    bottom: 12px; left: 12px;
+  }
+  .graph-minimap {
+    display: none;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -667,6 +859,7 @@ body {
 
 <!-- Main App Shell -->
 <div id="app">
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
   <!-- Left Sidebar -->
   <aside class="sidebar">
     <div class="brand-area">
@@ -718,6 +911,9 @@ body {
   <main class="main-wrapper">
     <header class="topbar">
       <div class="topbar-left">
+        <button id="sidebar-toggle" class="sidebar-toggle-btn" aria-label="Toggle Menu">
+          <span></span><span></span><span></span>
+        </button>
         <div class="breadcrumbs">
           <span>Views</span> / <b id="current-title" data-i18n="tab_mental">心智模型與紅線</b>
         </div>
@@ -754,7 +950,10 @@ body {
           <!-- Right Inspector -->
           <aside class="split-side" id="mental-inspector">
             <div class="inspector-head">
-              <div class="inspector-label" id="insp-module">ACTIVE REDLINE GUARD</div>
+              <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                <div class="inspector-label" id="insp-module">ACTIVE REDLINE GUARD</div>
+                <button class="insp-close-btn" onclick="closeInspector()" aria-label="Close">✕</button>
+              </div>
               <div class="inspector-title" id="insp-topic">選取一條規則檢視</div>
               <div class="inspector-desc" id="insp-principle">在左側清單中點擊任意心智模型或硬紅線卡片，即可檢視其關聯時序、攔截記錄與因果拓撲。</div>
             </div>
@@ -884,6 +1083,46 @@ body {
 
 <script>
 (function(){
+
+  // Mobile Drawer & Overlay Management
+  var sidebar = document.querySelector('.sidebar');
+  var overlay = document.getElementById('sidebar-overlay');
+  var toggleBtn = document.getElementById('sidebar-toggle');
+  var inspector = document.getElementById('mental-inspector');
+
+  function openSidebar(){
+    if(sidebar) sidebar.classList.add('open');
+    if(overlay) overlay.classList.add('active');
+  }
+  function closeSidebar(){
+    if(sidebar) sidebar.classList.remove('open');
+    if(overlay) overlay.classList.remove('active');
+  }
+  if(toggleBtn){
+    toggleBtn.addEventListener('click', function(e){
+      e.stopPropagation();
+      if(sidebar.classList.contains('open')) closeSidebar(); else openSidebar();
+    });
+  }
+  if(overlay){
+    overlay.addEventListener('click', function(){
+      closeSidebar();
+    });
+  }
+
+  window.closeInspector = function(){
+    if(inspector) inspector.classList.remove('mobile-open');
+  };
+
+  // 点击移动端菜单项时自动收起抽屉
+  document.querySelectorAll('.nav-item').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if(window.innerWidth <= 900){
+        closeSidebar();
+      }
+    });
+  });
+
   var urlParams = new URLSearchParams(window.location.search);
   var urlKey = urlParams.get('key');
   var initialTab = urlParams.get('tab') || window.location.hash.replace('#', '') || '';
@@ -1036,7 +1275,11 @@ body {
     renderRings();
   };
 
-  function selectMentalItem(m){
+  function selectMentalItem(m, userClicked){
+    if(userClicked && window.innerWidth <= 900){
+      var insp = document.getElementById('mental-inspector');
+      if(insp) insp.classList.add('mobile-open');
+    }
     document.getElementById('insp-module').textContent = (m.module || 'RULE').toUpperCase() + ' INSPECTOR';
     document.getElementById('insp-topic').textContent = m.topic;
     document.getElementById('insp-principle').textContent = m.principle;
@@ -1090,7 +1333,7 @@ body {
     document.querySelectorAll('.l-card').forEach(function(c){ c.classList.remove('selected'); });
     el.classList.add('selected');
     var item = allMentals.find(function(x){ return x.id === id; });
-    if(item) selectMentalItem(item);
+    if(item) selectMentalItem(item, true);
   };
 
   function renderRings(){
