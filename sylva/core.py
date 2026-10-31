@@ -10,6 +10,7 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 DEFAULT_DB_DIR = Path(os.environ.get("SYLVA_HOME", Path.home() / ".sylva"))
 DEFAULT_DB_PATH = DEFAULT_DB_DIR / "sylva.db"
@@ -84,6 +85,20 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- 6. Mental Models (心智模型)：抽象信念、處事準則、踩坑反思紅線與長期目標
+CREATE TABLE IF NOT EXISTS mental_models (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    module TEXT NOT NULL,         -- 'preference', 'redline', 'goal', 'boundary'
+    topic TEXT NOT NULL,          -- 如 'actual_budget', 'code_delivery', 'fitness_goal'
+    principle TEXT NOT NULL,      -- 核心信念/紅線原則
+    rationale TEXT,               -- 為什麼立此規（歷史踩坑失誤背景或緣由）
+    hit_count INTEGER DEFAULT 0,  -- 被前置命中/攔截次數
+    is_active INTEGER DEFAULT 1,  -- 啟用狀態 (1=啟用, 0=停用)
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mental_module ON mental_models(module);
+CREATE INDEX IF NOT EXISTS idx_mental_active ON mental_models(is_active);
 """
 
 
@@ -97,6 +112,7 @@ def init_database(db_path: Path | None = None) -> Path:
         _migrate_embedding(conn)
         _migrate_consolidated(conn)
         _migrate_relations_temporal(conn)
+        _migrate_mental_models(conn)
     return target
 
 
@@ -141,6 +157,26 @@ def _migrate_relations_temporal(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE entity_relations SET valid_at = created_at WHERE valid_at IS NULL;")
     if "invalid_at" not in cols:
         conn.execute("ALTER TABLE entity_relations ADD COLUMN invalid_at REAL;")
+
+
+def _migrate_mental_models(conn: sqlite3.Connection) -> None:
+    """舊庫遷移：若缺少 mental_models 則建表。"""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mental_models (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module TEXT NOT NULL,
+            topic TEXT NOT NULL,
+            principle TEXT NOT NULL,
+            rationale TEXT,
+            hit_count INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            updated_at REAL NOT NULL
+        );
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_mental_module ON mental_models(module);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_mental_active ON mental_models(is_active);")
 
 
 def _is_state_predicate(predicate: str) -> bool:
@@ -429,6 +465,95 @@ class SylvaStore:
                 (key, value),
             )
 
+    # ---------------------------------------------------------
+    # Mental Models (心智模型原語)
+    # ---------------------------------------------------------
+    def add_mental_model(
+        self,
+        module: str,
+        topic: str,
+        principle: str,
+        rationale: str = "",
+        is_active: bool = True,
+    ) -> int:
+        """寫入一條心智模型條目，返回主鍵 ID。"""
+        now = time.time()
+        with get_connection(self.db_path) as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO mental_models (module, topic, principle, rationale, is_active, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?);
+                """,
+                (module.strip(), topic.strip(), principle.strip(), rationale.strip(), 1 if is_active else 0, now),
+            )
+            return int(cur.lastrowid or 0)
+
+    def list_mental_models(
+        self,
+        module: str | None = None,
+        only_active: bool = True,
+    ) -> list[dict]:
+        """按模組與活躍狀態查詢心智模型列表。"""
+        sql = "SELECT id, module, topic, principle, rationale, hit_count, is_active, updated_at FROM mental_models"
+        conditions = []
+        params: list[Any] = []
+        if only_active:
+            conditions.append("is_active = 1")
+        if module:
+            conditions.append("module = ?")
+            params.append(module.strip())
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        sql += " ORDER BY hit_count DESC, updated_at DESC;"
+
+        with get_connection(self.db_path) as conn:
+            cur = conn.execute(sql, tuple(params))
+            return [dict(row) for row in cur.fetchall()]
+
+    def update_mental_model(
+        self,
+        model_id: int,
+        principle: str | None = None,
+        rationale: str | None = None,
+        is_active: bool | None = None,
+    ) -> bool:
+        """更新心智模型內容或啟用狀態。"""
+        updates = []
+        params: list[Any] = []
+        if principle is not None:
+            updates.append("principle = ?")
+            params.append(principle.strip())
+        if rationale is not None:
+            updates.append("rationale = ?")
+            params.append(rationale.strip())
+        if is_active is not None:
+            updates.append("is_active = ?")
+            params.append(1 if is_active else 0)
+        if not updates:
+            return False
+        updates.append("updated_at = ?")
+        params.append(time.time())
+        params.append(model_id)
+
+        sql = f"UPDATE mental_models SET {', '.join(updates)} WHERE id = ?;"
+        with get_connection(self.db_path) as conn:
+            cur = conn.execute(sql, tuple(params))
+            return cur.rowcount > 0
+
+    def delete_mental_model(self, model_id: int) -> bool:
+        """物理刪除心智模型條目。"""
+        with get_connection(self.db_path) as conn:
+            cur = conn.execute("DELETE FROM mental_models WHERE id = ?;", (model_id,))
+            return cur.rowcount > 0
+
+    def record_mental_hit(self, model_id: int) -> None:
+        """記錄心智被前置命中/攔截次數。"""
+        with get_connection(self.db_path) as conn:
+            conn.execute(
+                "UPDATE mental_models SET hit_count = hit_count + 1 WHERE id = ?;",
+                (model_id,),
+            )
+
     def stats(self) -> dict:
         """看板統計：各表計數與資料庫大小。"""
         with get_connection(self.db_path) as conn:
@@ -436,10 +561,12 @@ class SylvaStore:
             cores = conn.execute("SELECT COUNT(*) FROM core_memory;").fetchone()[0]
             checkpoints = conn.execute("SELECT COUNT(*) FROM checkpoints;").fetchone()[0]
             relations = conn.execute("SELECT COUNT(*) FROM entity_relations;").fetchone()[0]
+            mentals = conn.execute("SELECT COUNT(*) FROM mental_models;").fetchone()[0]
         return {
             "rings": rings,
             "cores": cores,
             "checkpoints": checkpoints,
             "relations": relations,
+            "mental_models": mentals,
             "db_bytes": self.db_path.stat().st_size,
         }
