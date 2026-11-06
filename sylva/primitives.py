@@ -41,6 +41,17 @@ class SylvaKernel:
                 core_lines.append(f"- {k}: {v}")
             blocks.append("\n".join(core_lines))
 
+        # 1b. Mental Models (心智中枢：偏好、红线、长期目标、权限边界)
+        mentals = self.store.list_mental_models(only_active=True)
+        if mentals:
+            mental_lines = ["[Mental Models & Redlines]"]
+            for m in mentals:
+                line = f"- [{m['module'].upper()}] {m['topic']}: {m['principle']}"
+                if m.get("rationale"):
+                    line += f" (Why: {m['rationale']})"
+                mental_lines.append(line)
+            blocks.append("\n".join(mental_lines))
+
         # 2. Checkpoint (断点恢复)
         cp_context = None
         if session_id:
@@ -81,6 +92,7 @@ class SylvaKernel:
             "char_count": len(full_context),
             "has_core": bool(cores),
             "has_checkpoint": bool(cp_context),
+            "mental_model_count": len(mentals),
             "recalled_count": len(matches),
             "relation_count": len(rel_lines),
         }

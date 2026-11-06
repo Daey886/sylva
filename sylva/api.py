@@ -103,6 +103,28 @@ class CheckpointRequest(BaseModel):
     metadata: str = "{}"
 
 
+class MentalModelCreateRequest(BaseModel):
+    module: str = Field(min_length=1)
+    topic: str = Field(min_length=1)
+    principle: str = Field(min_length=1)
+    rationale: str = ""
+    is_active: bool = True
+
+
+class MentalModelUpdateRequest(BaseModel):
+    principle: str | None = None
+    rationale: str | None = None
+    is_active: bool | None = None
+
+
+class ReflectRequest(BaseModel):
+    mistake: str = Field(min_length=1)
+    context: str = ""
+    module: str | None = None
+    topic: str | None = None
+    auto_apply: bool = True
+
+
 class SettingsRequest(BaseModel):
     llm_base_url: str | None = None
     llm_model: str | None = None
@@ -215,6 +237,64 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         if ctx is None:
             raise HTTPException(status_code=404, detail=f"断点 [{session_id}] 不存在")
         return {"session_id": session_id, "context": ctx}
+
+    # ---------------------------------------------------------
+    # Mental Models API
+    # ---------------------------------------------------------
+    @app.get("/mental")
+    def list_mentals(module: str | None = None, only_active: bool = False) -> dict:
+        """獲取心智模型清單（可選按 module 過濾）。"""
+        return {"mental_models": kernel.store.list_mental_models(module=module, only_active=only_active)}
+
+    @app.post("/mental")
+    def create_mental(req: MentalModelCreateRequest) -> dict:
+        """新建心智模型條目。"""
+        new_id = kernel.store.add_mental_model(
+            module=req.module,
+            topic=req.topic,
+            principle=req.principle,
+            rationale=req.rationale,
+            is_active=req.is_active,
+        )
+        return {"id": new_id, "created": True}
+
+    @app.patch("/mental/{model_id}")
+    def update_mental(model_id: int, req: MentalModelUpdateRequest) -> dict:
+        """更新心智模型內容或啟用狀態。"""
+        ok = kernel.store.update_mental_model(
+            model_id=model_id,
+            principle=req.principle,
+            rationale=req.rationale,
+            is_active=req.is_active,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"心智條目 [{model_id}] 不存在或未變更")
+        return {"id": model_id, "updated": True}
+
+    @app.delete("/mental/{model_id}")
+    def delete_mental(model_id: int) -> dict:
+        """刪除心智模型條目。"""
+        ok = kernel.store.delete_mental_model(model_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"心智條目 [{model_id}] 不存在")
+        return {"id": model_id, "deleted": True}
+
+    @app.post("/reflect")
+    def trigger_reflexion(req: ReflectRequest) -> dict:
+        """即時反思接口：當前置出錯或被用戶糾正時，立即推導因果根因並沉澱心智紅線。"""
+        from sylva.reflexion import reflect_and_learn
+
+        res = reflect_and_learn(
+            store=kernel.store,
+            mistake=req.mistake,
+            context=req.context,
+            module_override=req.module,
+            topic_override=req.topic,
+            auto_apply=req.auto_apply,
+        )
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Reflexion failed"))
+        return res
 
     app.add_middleware(_AuthMiddleware)
 
