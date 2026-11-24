@@ -902,7 +902,7 @@ body {
 
     <div class="sidebar-footer">
       <div class="probe-status">● PRE-EXEC GUARD ON</div>
-      <div class="probe-meta">RAM: 31.4MB · EVAL: 2.8ms</div>
+      <div class="probe-meta" id="qs-probe">RAM: -- · EVAL: --</div>
       <div class="probe-meta" id="qs-db">DB: 0 KB</div>
     </div>
   </aside>
@@ -1550,6 +1550,9 @@ body {
     document.getElementById('b-mental').textContent = s.mental_models || 0;
     document.getElementById('b-cp').textContent = s.checkpoints;
     document.getElementById('qs-db').textContent = 'DB: ' + (s.db_bytes/1024).toFixed(1) + ' KB';
+    if(s.ram_mb !== undefined && s.eval_ms !== undefined) {
+      document.getElementById('qs-probe').textContent = 'RAM: ' + s.ram_mb + 'MB · EVAL: ' + s.eval_ms + 'ms';
+    }
   }).catch(function(){});
 
   j('/mental').then(function(m){
