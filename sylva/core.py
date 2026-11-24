@@ -3,6 +3,7 @@ Sylva Core: Ultra-lean SQLite WAL storage engine.
 Strict ContextManager DB lifecycle, single-database architecture, zero connection leak.
 """
 
+import logging
 import os
 import re
 import sqlite3
@@ -14,6 +15,8 @@ from typing import Any
 
 DEFAULT_DB_DIR = Path(os.environ.get("SYLVA_HOME", Path.home() / ".sylva"))
 DEFAULT_DB_PATH = DEFAULT_DB_DIR / "sylva.db"
+
+logger = logging.getLogger("sylva.core")
 
 SCHEMA_SQL = """
 -- 1. Core Memory (树心)：常驻结构化核心事实块
@@ -610,7 +613,6 @@ class SylvaStore:
 
     def stats(self) -> dict:
         """看板統計：各表計數與資料庫大小。"""
-        import os
         import time
 
         t0 = time.perf_counter()
@@ -629,8 +631,8 @@ class SylvaStore:
             usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
             # Linux 上 ru_maxrss 单位为 KB
             ram_mb = round(usage / 1024.0, 1)
-        except Exception:
-            pass
+        except (OSError, ValueError):
+            logger.debug("读取进程 RSS 内存指标失败，RAM 置 0")
 
         return {
             "rings": rings,

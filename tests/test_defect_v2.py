@@ -1,12 +1,14 @@
 """针对 sylva-defect-report-v2 报告中缺陷修复的专项回归测试。"""
 
-import pytest
 from unittest.mock import patch
+
+import pytest
+from fastapi.testclient import TestClient
+
 from sylva.api import create_app
 from sylva.core import SylvaStore
 from sylva.primitives import SylvaKernel
 from sylva.reflexion import reflect_and_learn
-from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -40,8 +42,8 @@ def test_consolidated_rings_excluded_from_search(store):
     store.add_ring(ring_type="fact", content="已被归档整合的历史年轮内容", ring_hash="h2")
 
     rings_all = store.list_rings(limit=10)
-    r1 = [r for r in rings_all if r["content"] == "活跃的知识年轮内容"][0]["id"]
-    r2 = [r for r in rings_all if r["content"] == "已被归档整合的历史年轮内容"][0]["id"]
+    r1 = next(r for r in rings_all if r["content"] == "活跃的知识年轮内容")["id"]
+    r2 = next(r for r in rings_all if r["content"] == "已被归档整合的历史年轮内容")["id"]
 
     # 将 r2 标记为已整合归档
     store.mark_consolidated([r2])
@@ -74,19 +76,19 @@ def test_mental_hit_count_float_accumulation(store):
     )
 
     models_init = store.list_mental_models()
-    init_hit = [m for m in models_init if m["id"] == mid][0]["hit_count"]
+    init_hit = next(m for m in models_init if m["id"] == mid)["hit_count"]
     assert init_hit == 0.0
 
     # 模拟一次命中
     store.record_mental_hit(mid, weight=1.0)
     models_1 = store.list_mental_models()
-    hit_1 = [m for m in models_1 if m["id"] == mid][0]["hit_count"]
+    hit_1 = next(m for m in models_1 if m["id"] == mid)["hit_count"]
     assert hit_1 == 1.0
 
     # 验证多次命中保持浮点精度与累加正确
     store.record_mental_hit(mid, weight=0.5)
     models_2 = store.list_mental_models()
-    hit_2 = [m for m in models_2 if m["id"] == mid][0]["hit_count"]
+    hit_2 = next(m for m in models_2 if m["id"] == mid)["hit_count"]
     assert hit_2 == 1.5
 
 

@@ -10,7 +10,7 @@ import time
 from typing import Any
 
 from sylva.core import SylvaStore, get_connection
-from sylva.relations import ingest_relations, relation_recall
+from sylva.relations import relation_recall
 from sylva.search import find_similar_pairs, hybrid_search, semantic_available
 
 

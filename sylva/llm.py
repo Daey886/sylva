@@ -97,8 +97,8 @@ def complete(
         error_body = ""
         try:
             error_body = e.read().decode("utf-8")
-        except Exception:
-            pass
+        except (OSError, ValueError) as read_err:
+            logger.debug("读取 LLM 错误响应体失败: %s", read_err)
         logger.warning("LLM API HTTP %d 失败: %s - %s", e.code, e.reason, error_body)
         return None
     except (OSError, ValueError, KeyError, IndexError, TypeError) as e:
