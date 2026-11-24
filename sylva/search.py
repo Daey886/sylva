@@ -69,22 +69,53 @@ def hybrid_search(store: SylvaStore, query: str, limit: int = 5) -> list[dict]:
         return results
     try:
         _ensure_embeddings(store)
+        rings = store.get_rings_with_embedding()
+        if not rings:
+            return results
+
         qvec = encode([query])[0]
-        scored = sorted(
-            (
-                (cosine(qvec, unpack(ring["embedding"])), ring)
-                for ring in store.get_rings_with_embedding()
-            ),
-            key=lambda pair: -pair[0],
-        )
         seen = {m["id"] for m in results}
-        for _sim, ring in scored:
-            if len(results) >= limit:
-                break
-            if ring["id"] not in seen:
-                ring.pop("embedding", None)
-                results.append(ring)
-                seen.add(ring["id"])
+
+        try:
+            import numpy as np  # type: ignore
+            q_arr = np.array(qvec, dtype=np.float32)
+            q_norm = np.linalg.norm(q_arr)
+            if q_norm > 1e-12:
+                q_arr /= q_norm
+
+            matrix = np.stack([np.frombuffer(r["embedding"], dtype=np.float32) for r in rings])
+            norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+            matrix = matrix / np.maximum(norms, 1e-12)
+            scores = matrix @ q_arr
+            top_indices = np.argsort(-scores)
+
+            for idx in top_indices:
+                if len(results) >= limit:
+                    break
+                ring = rings[idx]
+                if ring["id"] not in seen:
+                    ring_copy = dict(ring)
+                    ring_copy.pop("embedding", None)
+                    results.append(ring_copy)
+                    seen.add(ring["id"])
+            return results
+        except ImportError:
+            # numpy 不可用时降级为原生列表排序
+            scored = sorted(
+                (
+                    (cosine(qvec, unpack(ring["embedding"])), ring)
+                    for ring in rings
+                ),
+                key=lambda pair: -pair[0],
+            )
+            for _sim, ring in scored:
+                if len(results) >= limit:
+                    break
+                if ring["id"] not in seen:
+                    ring_copy = dict(ring)
+                    ring_copy.pop("embedding", None)
+                    results.append(ring_copy)
+                    seen.add(ring["id"])
     except (OSError, RuntimeError, ImportError, ValueError):
         # 語義軌道為 best-effort 增強：模型缺失、下載失敗、推理錯誤均降級為純關鍵詞召回
         return results
@@ -95,7 +126,7 @@ def find_similar_pairs(rings: list[dict], threshold: float = 0.92) -> list[tuple
     """找出語義相似度超閾值的年輪對 (id_a, id_b, similarity)，用於去重合併。"""
     if len(rings) < 2:
         return []
-    import numpy as np
+    import numpy as np  # type: ignore
     ids = [r["id"] for r in rings]
     m = np.stack([np.frombuffer(r["embedding"], dtype=np.float32) for r in rings])
     m = m / np.maximum(np.linalg.norm(m, axis=1, keepdims=True), 1e-12)

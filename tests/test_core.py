@@ -90,14 +90,14 @@ def test_chinese_fts_substring():
         h = hashlib.sha256(content.encode()).hexdigest()
         store.add_ring("fact", content, h)
 
-        # 中文子串召回（trigram 分词器，修复前返回空）
+        # 中文子串召回（trigram 分词器）
         assert len(store.search_fts("向量数据库")) == 1
         assert len(store.search_fts("数据库")) == 1
         assert len(store.search_fts("SQLite")) == 1
 
-        # 短 query（<3 字符）静默返回空，不抛异常
-        assert store.search_fts("向量") == []
-        assert store.search_fts("数据") == []
+        # 短 query（<3 字符）经短词容错机制也能成功召回
+        assert len(store.search_fts("向量")) == 1
+        assert len(store.search_fts("数据")) == 1
 
         # 无关搜索
         assert store.search_fts("Postgres") == []

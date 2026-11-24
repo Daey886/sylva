@@ -170,8 +170,9 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         written = kernel.ingest(
             content=req.content, ring_type=req.ring_type, importance=req.importance
         )
-        # 抽取實體關係（可選 LLM，未配置則跳過）
-        extracted = ingest_relations(kernel.store, req.content)
+        extracted = 0
+        if written and req.ring_type != "interaction":
+            extracted = ingest_relations(kernel.store, req.content)
         return {
             "written": written,
             "ring_type": req.ring_type,

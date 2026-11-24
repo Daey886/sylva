@@ -76,6 +76,10 @@ def reflect_and_learn(
                 topic = topic_override or parsed.get("topic") or topic
                 principle = parsed.get("principle") or principle
                 rationale = parsed.get("rationale") or rationale
+    else:
+        # LLM 不可用时，降级路径不直接自动激活原话作为常驻心智模型，置为待审队列（is_active=False）
+        # 避免未经净化的情绪化原话或潜在恶意注入直接常驻拦截
+        auto_apply = False
 
     model_id = None
     if auto_apply:
@@ -85,6 +89,15 @@ def reflect_and_learn(
             principle=principle,
             rationale=rationale,
             is_active=True,
+        )
+    else:
+        # 作为待审记录落盘，不直接进入常驻前置拦截
+        model_id = store.add_mental_model(
+            module=module,
+            topic=topic,
+            principle=principle,
+            rationale=rationale,
+            is_active=False,
         )
 
     return {

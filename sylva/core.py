@@ -297,23 +297,77 @@ class SylvaStore:
             else:
                 grams.extend(tok[i : i + 3] for i in range(len(tok) - 2))
         grams = list(dict.fromkeys(grams))  # 保序去重
-        if not grams:
-            return []
 
         # 构造 FTS5 查询：多 gram 间使用 OR 提升召回容错（gram 仅含 \w，无需转义）
-        fts_query = " OR ".join(f'"{g}"' for g in grams)
+        fts_query = " OR ".join(f'"{g}"' for g in grams) if grams else None
 
-        sql = """
-        SELECT r.id, r.ring_type, r.content, r.importance, r.created_at, bm25(rings_fts) as rank
-        FROM rings_fts f
-        JOIN rings r ON f.rowid = r.id
-        WHERE rings_fts MATCH ?
-        ORDER BY rank
-        LIMIT ?;
-        """
+        # 针对 1~2 字短词（无法走 trigram 分词器），使用 LIKE 作为补充召回
+        short_tokens = [tok for tok in re.findall(r"\w+", query, flags=re.UNICODE) if len(tok) < 3]
+
+        if not fts_query and not short_tokens:
+            return []
+
+        if fts_query and not short_tokens:
+            sql = """
+            SELECT r.id, r.ring_type, r.content, r.importance, r.created_at, bm25(rings_fts) as rank
+            FROM rings_fts f
+            JOIN rings r ON f.rowid = r.id
+            WHERE rings_fts MATCH ? AND r.consolidated = 0
+            ORDER BY rank
+            LIMIT ?;
+            """
+            params: list = [fts_query, safe_limit]
+            with get_connection(self.db_path) as conn:
+                cur = conn.execute(sql, tuple(params))
+                return [dict(row) for row in cur.fetchall()]
+
+        # 若存在短词（如 "跑步"、"猫"），结合 FTS 或降级为 LIKE 查询
         with get_connection(self.db_path) as conn:
-            cur = conn.execute(sql, (fts_query, safe_limit))
-            return [dict(row) for row in cur.fetchall()]
+            results: list[dict] = []
+            seen_ids = set()
+
+            if fts_query:
+                sql_fts = """
+                SELECT r.id, r.ring_type, r.content, r.importance, r.created_at, bm25(rings_fts) as rank
+                FROM rings_fts f
+                JOIN rings r ON f.rowid = r.id
+                WHERE rings_fts MATCH ? AND r.consolidated = 0
+                ORDER BY rank
+                LIMIT ?;
+                """
+                cur = conn.execute(sql_fts, (fts_query, safe_limit))
+                for row in cur.fetchall():
+                    item = dict(row)
+                    results.append(item)
+                    seen_ids.add(item["id"])
+
+            if len(results) < safe_limit and short_tokens:
+                # 转义 LIKE 特殊字符 % 与 _
+                like_clauses = []
+                like_params = []
+                for st in short_tokens[:5]:
+                    escaped_st = st.replace("/", "//").replace("%", "/%").replace("_", "/_")
+                    like_clauses.append("content LIKE ? ESCAPE '/'")
+                    like_params.append(f"%{escaped_st}%")
+
+                where_like = " OR ".join(like_clauses)
+                sql_like = f"""
+                SELECT id, ring_type, content, importance, created_at, 0.0 as rank
+                FROM rings
+                WHERE ({where_like}) AND consolidated = 0
+                ORDER BY created_at DESC
+                LIMIT ?;
+                """
+                cur = conn.execute(sql_like, tuple(like_params + [safe_limit]))
+                for row in cur.fetchall():
+                    item = dict(row)
+                    if item["id"] not in seen_ids:
+                        results.append(item)
+                        seen_ids.add(item["id"])
+                        if len(results) >= safe_limit:
+                            break
+
+            return results
 
     def set_embedding(self, ring_id: int, blob: bytes) -> None:
         """寫回年輪的語義向量 BLOB。"""
@@ -332,11 +386,11 @@ class SylvaStore:
             return [dict(row) for row in cur.fetchall()]
 
     def get_rings_with_embedding(self) -> list[dict]:
-        """返回已嵌入向量的年輪（語義召回用）。"""
+        """返回已嵌入向量的年輪（語義召回用，過濾已歸檔年輪）。"""
         with get_connection(self.db_path) as conn:
             cur = conn.execute(
                 "SELECT id, ring_type, content, importance, created_at, embedding "
-                "FROM rings WHERE embedding IS NOT NULL;"
+                "FROM rings WHERE embedding IS NOT NULL AND consolidated = 0;"
             )
             return [dict(row) for row in cur.fetchall()]
 
@@ -546,22 +600,38 @@ class SylvaStore:
             cur = conn.execute("DELETE FROM mental_models WHERE id = ?;", (model_id,))
             return cur.rowcount > 0
 
-    def record_mental_hit(self, model_id: int) -> None:
-        """記錄心智被前置命中/攔截次數。"""
+    def record_mental_hit(self, model_id: int, weight: float = 1.0) -> None:
+        """記錄心智模型被命中觸發，增加熱度計數（支援浮點權重累加）。"""
         with get_connection(self.db_path) as conn:
             conn.execute(
-                "UPDATE mental_models SET hit_count = hit_count + 1 WHERE id = ?;",
-                (model_id,),
+                "UPDATE mental_models SET hit_count = hit_count + ?, updated_at = ? WHERE id = ?;",
+                (float(weight), time.time(), model_id),
             )
 
     def stats(self) -> dict:
         """看板統計：各表計數與資料庫大小。"""
+        import os
+        import time
+
+        t0 = time.perf_counter()
         with get_connection(self.db_path) as conn:
             rings = conn.execute("SELECT COUNT(*) FROM rings;").fetchone()[0]
             cores = conn.execute("SELECT COUNT(*) FROM core_memory;").fetchone()[0]
             checkpoints = conn.execute("SELECT COUNT(*) FROM checkpoints;").fetchone()[0]
             relations = conn.execute("SELECT COUNT(*) FROM entity_relations;").fetchone()[0]
             mentals = conn.execute("SELECT COUNT(*) FROM mental_models;").fetchone()[0]
+        eval_ms = (time.perf_counter() - t0) * 1000
+
+        # 获取当前进程物理内存占用 (RSS MB)
+        ram_mb = 0.0
+        try:
+            import resource
+            usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            # Linux 上 ru_maxrss 单位为 KB
+            ram_mb = round(usage / 1024.0, 1)
+        except Exception:
+            pass
+
         return {
             "rings": rings,
             "cores": cores,
@@ -569,4 +639,6 @@ class SylvaStore:
             "relations": relations,
             "mental_models": mentals,
             "db_bytes": self.db_path.stat().st_size,
+            "ram_mb": ram_mb,
+            "eval_ms": round(eval_ms, 2),
         }

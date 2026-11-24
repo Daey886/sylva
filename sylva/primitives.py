@@ -52,11 +52,11 @@ class SylvaKernel:
                 mental_lines.append(line)
             blocks.append("\n".join(mental_lines))
 
-        # 2. Checkpoint (断点恢复)
+        # 2. Checkpoint (断点恢复：严格会话隔离，查不到本会话断点则不注入；仅当未显式传 session_id 且 session_id is None 时允许取全局最近断点)
         cp_context = None
         if session_id:
             cp_context = self.store.get_checkpoint(session_id)
-        if not cp_context:
+        elif session_id is None:
             latest = self.store.get_latest_checkpoint()
             if latest:
                 cp_context = f"[Last Session: {latest[0]}]\n{latest[1]}"
@@ -117,9 +117,6 @@ class SylvaKernel:
             ring_hash=ring_hash,
             importance=importance,
         )
-        # 寫入成功後，可選抽取實體關係三元組（未配置 LLM 時為空操作，零開銷）
-        if written and ring_type != "interaction":
-            ingest_relations(self.store, clean_content)
         return written
 
     def ring_consolidate(

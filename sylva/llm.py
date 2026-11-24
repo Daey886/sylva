@@ -5,10 +5,14 @@
 """
 
 import json
+import logging
 import os
 import sqlite3
+import urllib.error
 import urllib.request
 from pathlib import Path
+
+logger = logging.getLogger("sylva.llm")
 
 _DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 _DEFAULT_MODEL = "deepseek-chat"
@@ -89,5 +93,14 @@ def complete(
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         return data["choices"][0]["message"]["content"].strip()
-    except (OSError, ValueError, KeyError, IndexError, TypeError):
+    except urllib.error.HTTPError as e:
+        error_body = ""
+        try:
+            error_body = e.read().decode("utf-8")
+        except Exception:
+            pass
+        logger.warning("LLM API HTTP %d 失败: %s - %s", e.code, e.reason, error_body)
+        return None
+    except (OSError, ValueError, KeyError, IndexError, TypeError) as e:
+        logger.warning("LLM 调用异常: %s", type(e).__name__)
         return None
